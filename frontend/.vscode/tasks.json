@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "Install dependencies",
+			"command": "npm install",
+			"group": "build",
+			"isBackground": false
+		},
+		{
+			"type": "shell",
+			"label": "Start React App",
+			"command": "npm start",
+			"group": "build",
+			"isBackground": false
+		}
+	]
+}
