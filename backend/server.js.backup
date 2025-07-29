@@ -1,0 +1,14 @@
+// Copie de sauvegarde du server.js original
+const express = require('express');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+const cors = require('cors');
+const axios = require('axios');
+const { Pool } = require('pg');
+const http = require('http');
+const { Server } = require('socket.io');
+const WebSocket = require('ws');
+
+// ... (reste du contenu du server.js)

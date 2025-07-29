@@ -1,0 +1,101 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { Box } from '@mui/material';
+import 'ol/ol.css';
+import Map from 'ol/Map';
+import View from 'ol/View';
+import TileLayer from 'ol/layer/Tile';
+import OSM from 'ol/source/OSM';
+import { fromLonLat, transform } from 'ol/proj';
+import { Point } from 'ol/geom';
+import { Feature } from 'ol';
+import { Vector as VectorLayer } from 'ol/layer';
+import { Vector as VectorSource } from 'ol/source';
+import { Style, Icon } from 'ol/style';
+
+const LocationPicker = ({ onLocationSelect, initialLocation }) => {
+  const mapRef = useRef();
+  const [map, setMap] = useState(null);
+  const [markerLayer, setMarkerLayer] = useState(null);
+
+  useEffect(() => {
+    // Initialize map
+    const initialMap = new Map({
+      target: mapRef.current,
+      layers: [
+        new TileLayer({
+          source: new OSM()
+        })
+      ],
+      view: new View({
+        center: fromLonLat([3.042048, 36.752887]), // Centre sur l'Algérie
+        zoom: 6
+      })
+    });
+
+    // Create vector layer for marker
+    const vectorSource = new VectorSource();
+    const vectorLayer = new VectorLayer({
+      source: vectorSource
+    });
+    initialMap.addLayer(vectorLayer);
+
+    setMap(initialMap);
+    setMarkerLayer(vectorLayer);
+
+    // If initial location is provided, add marker
+    if (initialLocation) {
+      const { longitude, latitude } = initialLocation;
+      addMarker(vectorLayer, [longitude, latitude]);
+    }
+
+    return () => {
+      initialMap.setTarget(null);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!map) return;
+
+    const handleClick = (event) => {
+      const coords = map.getCoordinateFromPixel(event.pixel);
+      const lonlat = transform(coords, 'EPSG:3857', 'EPSG:4326');
+      
+      // Clear previous markers
+      markerLayer.getSource().clear();
+      
+      // Add new marker
+      addMarker(markerLayer, lonlat);
+      
+      // Notify parent component
+      onLocationSelect({
+        longitude: lonlat[0],
+        latitude: lonlat[1]
+      });
+    };
+
+    map.on('click', handleClick);
+
+    return () => {
+      map.un('click', handleClick);
+    };
+  }, [map, markerLayer, onLocationSelect]);
+
+  const addMarker = (layer, coordinates) => {
+    const marker = new Feature({
+      geometry: new Point(fromLonLat(coordinates))
+    });
+
+    marker.setStyle(
+      new Style({
+        image: new Icon({
+          anchor: [0.5, 1],
+          src: '/assets/marker-icon.png'
+        })
+      })
+    );
+
+    layer.getSource().addFeature(marker);
+  };
+};
+
+export default LocationPicker;

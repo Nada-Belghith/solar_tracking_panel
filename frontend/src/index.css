@@ -2,17 +2,50 @@
 
 html,
 body,
-#root,
-.app,
-.content {
+#root {
   height: 100%;
   width: 100%;
+  margin: 0;
+  padding: 0;
   font-family: "Source Sans Pro", sans-serif;
+  overflow-x: hidden;
 }
 
 .app {
   display: flex;
   position: relative;
+  min-height: 100vh;
+  width: 100vw;
+}
+
+.content {
+  flex: 1;
+  width: 100%;
+  height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Styles pour mobile */
+@media screen and (max-width: 768px) {
+  .content {
+    padding: 10px;
+    font-size: 14px;
+  }
+  
+  /* Ajuster la taille des titres sur mobile */
+  h1 { font-size: 1.8rem !important; }
+  h2 { font-size: 1.5rem !important; }
+  h3 { font-size: 1.2rem !important; }
+  
+  /* Ajuster les marges et paddings */
+  .MuiBox-root { padding: 10px !important; }
+  
+  /* Rendre les tableaux responsifs */
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
 }
 
 ::-webkit-scrollbar {

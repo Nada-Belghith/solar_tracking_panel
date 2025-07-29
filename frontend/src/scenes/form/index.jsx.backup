@@ -1,83 +1,26 @@
-import { Box, Button, TextField } from "@mui/material";
+import { Box, Button, TextField, FormControlLabel, Switch } from "@mui/material";
 import { Formik } from "formik";
 import * as yup from "yup";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import Header from "../../components/Header";
-import LocationPicker from "../../components/LocationPicker/index";
+import LocationPicker from "../../components/LocationPicker";
 import { useState } from "react";
 
 const Form = () => {
   const isNonMobile = useMediaQuery("(min-width:600px)");
   const [selectedLocation, setSelectedLocation] = useState(null);
 
-  const handleFormSubmit = async (values, { setSubmitting, resetForm, setFieldError }) => {
-    try {
-      const token = localStorage.getItem('jwt'); // Récupérer le token d'authentification
-      
-      if (!token) {
-        console.error('❌ Aucun token trouvé. Redirection vers la page de connexion...');
-        window.location.href = '/login';
-        return;
-      }
-      
-      console.log('🔍 Token envoyé:', token);
-      console.log('🔍 Données envoyées:', {
-        name: values.name,
-        cin: values.cin,
-        email: values.email,
-        address: values.address,
-        installationDate: values.installationDate,
-        latitude: values.latitude,
-        longitude: values.longitude,
-        elevation: values.elevation
-      });
-      
-      const response = await fetch('http://localhost:3001/api/clients', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: values.name,
-          cin: values.cin,
-          email: values.email,
-          address: values.address,
-          installationDate: values.installationDate,
-          latitude: values.latitude,
-          longitude: values.longitude,
-          elevation: values.elevation
-        })
-      });
-
-      const data = await response.json().catch(() => {
-        console.error('❌ Réponse non JSON:', response.status, response.statusText);
-        throw new Error('Réponse non JSON reçue du serveur');
-      });
-
-      if (!response.ok) {
-        console.error('❌ Erreur de réponse:', response.status, response.statusText);
-        throw new Error(data.error || 'Erreur inconnue');
-      }
-
-      // Réinitialiser le formulaire si l'ajout est réussi
-      resetForm();
-      setSelectedLocation(null);
-      
-      // Afficher un message de succès (vous pouvez utiliser une notification toast ici)
-      alert('Client ajouté avec succès!');
-      
-    } catch (error) {
-      console.error('Erreur:', error);
-      // Si l'erreur concerne le CIN déjà existant
-      if (error.message.includes('CIN existe déjà')) {
-        setFieldError('cin', 'Un client avec ce CIN existe déjà');
-      } else {
-        alert(error.message);
-      }
-    } finally {
-      setSubmitting(false);
-    }
+  const handleFormSubmit = (values) => {
+    const finalValues = {
+      ...values,
+      location: selectedLocation ? {
+        type: "Point",
+        coordinates: [selectedLocation.longitude, selectedLocation.latitude],
+        elevation: selectedLocation.elevation
+      } : null
+    };
+    console.log(finalValues);
+    // Ici vous pouvez ajouter la logique pour envoyer les données au backend
   };
 
   const checkoutSchema = yup.object().shape({
@@ -88,13 +31,14 @@ const Form = () => {
     email: yup.string()
       .email("Email invalide")
       .required("Email requis"),
+    address: yup.string()
+      .required("Adresse requise"),
     installationDate: yup.date()
       .nullable()
       .min(new Date(), "La date d'installation ne peut pas être dans le passé"),
     latitude: yup.number().required("Veuillez sélectionner un emplacement sur la carte"),
     longitude: yup.number().required("Veuillez sélectionner un emplacement sur la carte"),
-    elevation: yup.number().nullable(),
-    address: yup.string().required("L'adresse sera automatiquement récupérée en cliquant sur la carte")
+    elevation: yup.number().nullable()
   });
 
   const initialValues = {
@@ -114,7 +58,6 @@ const Form = () => {
       <Header title="AJOUTER CLIENT" subtitle="Ajouter un nouveau client PV" />
 
       <Formik
-        enableReinitialize
         onSubmit={handleFormSubmit}
         initialValues={initialValues}
         validationSchema={checkoutSchema}
@@ -173,21 +116,8 @@ const Form = () => {
                 name="email"
                 error={!!touched.email && !!errors.email}
                 helperText={touched.email && errors.email}
-                sx={{ gridColumn: "span 4" }}
+                sx={{ gridColumn: "span 2" }}
               />
-              <TextField
-                fullWidth
-                variant="filled"
-                type="date"
-                label="Date d'installation prévue"
-                onBlur={handleBlur}
-                onChange={handleChange}
-                value={values.installationDate}
-                name="installationDate"
-                InputLabelProps={{ shrink: true }}
-                sx={{ gridColumn: "span 4" }}
-              />
-
               <Box sx={{ gridColumn: "span 4" }}>
                 <LocationPicker 
                   onLocationSelect={(location) => {
@@ -210,15 +140,8 @@ const Form = () => {
                         value: location.elevation
                       }
                     });
-                    handleChange({
-                      target: {
-                        name: 'address',
-                        value: location.address
-                      }
-                    });
                   }}
                 />
-                
                 <Box
                   display="grid"
                   gap="20px"
@@ -230,14 +153,14 @@ const Form = () => {
                     variant="filled"
                     type="text"
                     label="Adresse"
+                    onBlur={handleBlur}
+                    onChange={handleChange}
                     value={values.address}
                     name="address"
-                    InputProps={{
-                      readOnly: true,
-                    }}
+                    error={!!touched.address && !!errors.address}
+                    helperText={touched.address && errors.address}
                     sx={{ gridColumn: "span 4" }}
                   />
-                  
                   <TextField
                     fullWidth
                     variant="filled"
@@ -247,10 +170,9 @@ const Form = () => {
                     name="latitude"
                     InputProps={{
                       readOnly: true,
-                      endAdornment: <Box component="span" sx={{ color: 'text.secondary', ml: 1 }}>°</Box>
+                      endAdornment: <Box sx={{ ml: 1, color: 'text.secondary' }}>°</Box>
                     }}
                   />
-                  
                   <TextField
                     fullWidth
                     variant="filled"
@@ -260,10 +182,9 @@ const Form = () => {
                     name="longitude"
                     InputProps={{
                       readOnly: true,
-                      endAdornment: <Box component="span" sx={{ color: 'text.secondary', ml: 1 }}>°</Box>
+                      endAdornment: <Box sx={{ ml: 1, color: 'text.secondary' }}>°</Box>
                     }}
                   />
-                  
                   <TextField
                     fullWidth
                     variant="filled"
@@ -273,11 +194,44 @@ const Form = () => {
                     name="elevation"
                     InputProps={{
                       readOnly: true,
-                      endAdornment: <Box component="span" sx={{ color: 'text.secondary', ml: 1 }}>m</Box>
+                      endAdornment: <Box sx={{ ml: 1, color: 'text.secondary' }}>m</Box>
                     }}
                   />
                 </Box>
               </Box>
+                  <TextField
+                    fullWidth
+                    variant="filled"
+                    type="text"
+                    label="Adresse"
+                    onBlur={handleBlur}
+                    onChange={(e) => {
+                      handleChange(e);
+                      setSelectedLocation({
+                        address: e.target.value,
+                        lat: null,
+                        lng: null
+                      });
+                    }}
+                    value={values.address}
+                    name="address"
+                    error={!!touched.address && !!errors.address}
+                    helperText={touched.address && errors.address}
+                  />
+                )}
+              </Box>
+              <TextField
+                fullWidth
+                variant="filled"
+                type="date"
+                label="Date d'installation prévue"
+                onBlur={handleBlur}
+                onChange={handleChange}
+                value={values.installationDate}
+                name="installationDate"
+                InputLabelProps={{ shrink: true }}
+                sx={{ gridColumn: "span 4" }}
+              />
             </Box>
             <Box display="flex" justifyContent="end" mt="20px">
               <Button type="submit" color="secondary" variant="contained">

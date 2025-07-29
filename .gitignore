@@ -1,0 +1,21 @@
+# Ne pas versionner les dépendances Node.js
+node_modules/
+backend/node_modules/
+
+# Fichiers sensibles
+.env
+backend/.env
+backend/.env.local
+backend/.env.example
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Lock files (si tu utilises yarn ou npm)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Autres fichiers temporaires
+*.log
