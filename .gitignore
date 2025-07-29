@@ -25,3 +25,9 @@ backend/node_modules/
 frontend/.cache/
 frontend/node_modules/.cache/
 *.pack
+# Python
+__pycache__/
+*.pyc
+# Node
+node_modules/
+.env
