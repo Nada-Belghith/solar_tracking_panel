@@ -4,13 +4,22 @@ import * as yup from "yup";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import Header from "../../components/Header";
 import LocationPicker from "../../components/LocationPicker/index";
-import { useState } from "react";
 
 const Form = () => {
   const isNonMobile = useMediaQuery("(min-width:600px)");
-  const [selectedLocation, setSelectedLocation] = useState(null);
 
   const handleFormSubmit = async (values, { setSubmitting, resetForm, setFieldError }) => {
+    console.log('🟢 handleFormSubmit appelé avec les valeurs:', values);
+
+    // Vérification si la date d'installation est dans le passé
+    const today = new Date();
+    const selectedDate = new Date(values.installationDate);
+    if (selectedDate < today) {
+      alert("La date d'installation ne peut pas être dans le passé. Veuillez sélectionner une date valide.");
+      setSubmitting(false);
+      return;
+    }
+
     try {
       const token = localStorage.getItem('jwt'); // Récupérer le token d'authentification
       
@@ -32,7 +41,7 @@ const Form = () => {
         elevation: values.elevation
       });
       
-      const response = await fetch('http://localhost:3001/api/clients', {
+      const response = await fetch('http://localhost:3001/clients', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -62,7 +71,6 @@ const Form = () => {
 
       // Réinitialiser le formulaire si l'ajout est réussi
       resetForm();
-      setSelectedLocation(null);
       
       // Afficher un message de succès (vous pouvez utiliser une notification toast ici)
       alert('Client ajouté avec succès!');
@@ -90,7 +98,7 @@ const Form = () => {
       .required("Email requis"),
     installationDate: yup.date()
       .nullable()
-      .min(new Date(), "La date d'installation ne peut pas être dans le passé"),
+      .min(new Date(), "La date d'installation ne peut pas être dans le passé"), // Validation pour empêcher les dates passées
     latitude: yup.number().required("Veuillez sélectionner un emplacement sur la carte"),
     longitude: yup.number().required("Veuillez sélectionner un emplacement sur la carte"),
     elevation: yup.number().nullable(),
@@ -191,7 +199,6 @@ const Form = () => {
               <Box sx={{ gridColumn: "span 4" }}>
                 <LocationPicker 
                   onLocationSelect={(location) => {
-                    setSelectedLocation(location);
                     handleChange({
                       target: {
                         name: 'latitude',

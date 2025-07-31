@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { Box, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { tokens } from '../theme';
 import { useTheme } from '@mui/material';
+import io from 'socket.io-client';
+
+const socket = io('http://localhost:3000'); // URL du backend
 
 const PanelSelector = ({ onPanelChange }) => {
   const theme = useTheme();
@@ -10,8 +13,10 @@ const PanelSelector = ({ onPanelChange }) => {
   const [panels, setPanels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [telemetryData, setTelemetryData] = useState(null);
 
-   useEffect(() => {
+  useEffect(() => {
     const fetchPanels = async () => {
       try {
         const token = localStorage.getItem('jwt');
@@ -57,6 +62,22 @@ const PanelSelector = ({ onPanelChange }) => {
     }
   };
 
+  useEffect(() => {
+    if (selectedClient) {
+      socket.emit('selectClient', selectedClient);
+
+      socket.on(`telemetry:${selectedClient.deviceId}`, (data) => {
+        setTelemetryData(data);
+      });
+    }
+
+    return () => {
+      if (selectedClient) {
+        socket.off(`telemetry:${selectedClient.deviceId}`);
+      }
+    };
+  }, [selectedClient]);
+
   return (
     <Box mb={3}>
       <FormControl fullWidth variant="filled" sx={{
@@ -94,6 +115,22 @@ const PanelSelector = ({ onPanelChange }) => {
           )}
         </Select>
       </FormControl>
+
+      <div>
+        <h1>Sélectionnez un client</h1>
+        <select onChange={(e) => setSelectedClient(JSON.parse(e.target.value))}>
+          {/* Remplir avec les clients */}
+          <option value='{"deviceId":"123", "token":"abc"}'>Client 1</option>
+          <option value='{"deviceId":"456", "token":"def"}'>Client 2</option>
+        </select>
+
+        {telemetryData && (
+          <div>
+            <h2>Données de télémétrie</h2>
+            <pre>{JSON.stringify(telemetryData, null, 2)}</pre>
+          </div>
+        )}
+      </div>
     </Box>
   );
 };

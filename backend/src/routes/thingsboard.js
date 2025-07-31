@@ -10,6 +10,7 @@ router.post('/update-thingsboard', async (req, res) => {
   }
 
   try {
+    console.log('🔍 [DEBUG] Received from frontend:', { deviceId, deviceToken });
     // io est passé depuis server.js
     await reconnectThingsBoardWS(req.app.get('io'), deviceId, deviceToken);
     console.log('✅ [BACKEND] Updated ThingsBoard connection details:', { deviceId, deviceToken });

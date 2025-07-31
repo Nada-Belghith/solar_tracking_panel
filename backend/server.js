@@ -20,7 +20,7 @@ const authRoutes = require('./src/routes/auth');
 const clientsRoutes = require('./src/routes/clients');
 const thingsboardRoutes = require('./src/routes/thingsboard');
 const panelsRoutes = require('./src/routes/panels');
-const { connectThingsBoardWS } = require('./src/services/thingsboard');
+const { connectThingsBoardWS, createTelemetryTable, insertTelemetryForPanel } = require('./src/services/thingsboard');
 
 // ───────────────────────────────────────────────
 // Initialisation Express + Middleware
@@ -63,7 +63,7 @@ passport.use(new GoogleStrategy({
 // Configuration des routes
 // ───────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
-app.use('/api/clients', clientsRoutes);
+app.use('/', clientsRoutes);
 app.use('/api/panels', panelsRoutes);
 app.use('/api', thingsboardRoutes);
 
@@ -80,13 +80,15 @@ app.get('/api/auth/google/callback', passport.authenticate('google', {
   try {
     const user = req.user;
     console.log('✅ Utilisateur Google authentifié:', user.displayName);
-    
+
     const token = jwt.sign({
-       name: user.displayName,
-    email: user.emails[0].value,
-    picture: user.photos[0].value
+      name: user.displayName,
+      email: user.emails[0].value,
+      picture: user.photos[0].value
     }, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
-    
+
+    console.log('🔑 Token généré:', token); // Log du token généré
+
     res.redirect(`${process.env.FRONT_URL || 'http://localhost:5000'}/auth/success?token=${token}`);
   } catch (error) {
     console.error('❌ Erreur lors de la génération du token:', error);
@@ -94,21 +96,75 @@ app.get('/api/auth/google/callback', passport.authenticate('google', {
   }
 });
 
+// Map pour suivre les connexions par deviceId
+const deviceConnections = new Map();
+
 // Gestion des connexions WebSocket
 io.on('connection', socket => {
-  console.log('🟢 Client WebSocket connecté:', socket.id);
-  socket.on('disconnect', () => {
-    console.log('🔴 Client WebSocket déconnecté:', socket.id);
-  });
-});
+  const deviceId = socket.handshake.query.deviceId;
+  const panelName = socket.handshake.query.panelName; // Nom du panneau transmis par le client
 
-// Connexion initiale à ThingsBoard WebSocket
-connectThingsBoardWS(io).catch(err => {
-  console.error('❌ Erreur de connexion à ThingsBoard:', err);
+  // Si ce deviceId a déjà une connexion active, fermer l'ancienne
+  if (deviceId && deviceConnections.has(deviceId)) {
+    const existingSocket = deviceConnections.get(deviceId);
+    console.log(`🔄 Fermeture de la connexion existante pour le deviceId: ${deviceId}`);
+    existingSocket.disconnect(true);
+  }
+
+  // Enregistrer la nouvelle connexion
+  if (deviceId) {
+    deviceConnections.set(deviceId, socket);
+  }
+
+  console.log('🟢 Client WebSocket connecté:', socket.id);
+  console.log(`📊 Nombre total de connexions actives: ${io.engine.clientsCount}`);
+
+  // Créer une table pour le panneau si elle n'existe pas
+  if (panelName) {
+    createTelemetryTable(panelName).catch(err => {
+      console.error(`❌ Erreur lors de la création de la table pour ${panelName}:`, err.message);
+    });
+  }
+
+  // Écouter uniquement les événements de connexion/déconnexion
+  socket.on('disconnect', (reason) => {
+    // Supprimer la connexion de notre map si c'était la dernière pour ce deviceId
+    if (deviceId && deviceConnections.get(deviceId)?.id === socket.id) {
+      deviceConnections.delete(deviceId);
+    }
+
+    console.log(`🔴 Client WebSocket déconnecté (${reason}):`, socket.id);
+    console.log(`📊 Nombre de connexions restantes: ${io.engine.clientsCount - 1}`);
+    console.log(`📊 Nombre de devices connectés: ${deviceConnections.size}`);
+  });
+
+  socket.on('selectClient', ({ deviceId, token }) => {
+    console.log(`🔧 Client sélectionné: deviceId=${deviceId}`);
+
+    // Connecter au WebSocket ThingsBoard pour ce client
+    connectThingsBoardWS(io, deviceId, token).catch((err) => {
+      console.error(`Erreur lors de la connexion au WebSocket pour ${deviceId}:`, err.message);
+    });
+  });
+
+  socket.on('telemetry', (data) => {
+    if (panelName) {
+      insertTelemetryForPanel(panelName, data).catch(err => {
+        console.error(`❌ Erreur lors de l'insertion des télémétries pour ${panelName}:`, err.message);
+      });
+    }
+  });
 });
 
 // Démarrage du serveur
 const port = process.env.PORT || 3001;
 server.listen(port, () => {
   console.log(`🚀 Serveur démarré sur le port ${port}`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log('❌ Port ' + port + ' est déjà utilisé. Tentative avec le port ' + (port + 1));
+    server.listen(port + 1);
+  } else {
+    console.error('❌ Erreur serveur:', err);
+  }
 });

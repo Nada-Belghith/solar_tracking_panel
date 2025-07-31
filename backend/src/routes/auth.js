@@ -27,13 +27,17 @@ router.post('/login', async (req, res) => {
       { expiresIn: '1d' }
     );
 
+    console.log('🔑 Token généré:', token); // Log du token généré
+
     let tbToken = null;
     try {
       tbToken = await getTbToken();
+      console.log('🔑 Token ThingsBoard généré:', tbToken); // Log du token ThingsBoard
     } catch (err) {
       console.error('Login TB:', err.message);
     }
 
+    console.log('✅ Réponse envoyée avec le token:', { token, tbToken }); // Log de la réponse
     res.json({ 
       status: 'ok', 
       user: { id: user.id, name: user.name, email: user.email }, 

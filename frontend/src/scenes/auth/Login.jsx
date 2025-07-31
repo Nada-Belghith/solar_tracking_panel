@@ -21,15 +21,21 @@ const Login = () => {
         body: JSON.stringify({ email, password })
       });
       const data = await res.json();
+      console.log('🔄 Réponse reçue du backend:', data); // Log de la réponse complète
       if (data.status === "ok" && data.token) {
         localStorage.setItem("jwt", data.token);
-        console.log('✅ Token stocké dans localStorage:', data.token);
-        if (data.tbToken) localStorage.setItem("tbToken", data.tbToken);
+        console.log('✅ Token stocké dans localStorage:', data.token); // Log du token stocké
+        if (data.tbToken) {
+          localStorage.setItem("tbToken", data.tbToken);
+          console.log('✅ Token ThingsBoard stocké dans localStorage:', data.tbToken); // Log du token ThingsBoard
+        }
         navigate("/dashboard");
       } else {
+        console.error('❌ Erreur reçue du backend:', data.error); // Log de l'erreur reçue
         setError(data.error || "Erreur de connexion");
       }
     } catch (err) {
+      console.error('❌ Erreur lors de la requête:', err.message); // Log de l'erreur de requête
       setError("Erreur serveur");
     }
   };

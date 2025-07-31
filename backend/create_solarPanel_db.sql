@@ -49,8 +49,9 @@ CREATE TABLE clients (
 CREATE TABLE solar_panel (
   id SERIAL PRIMARY KEY,
   client_id INTEGER NOT NULL REFERENCES clients(id),
+  name VARCHAR(100) NOT NULL,
   device_id_thingsboard VARCHAR(255) NOT NULL UNIQUE,
   token_thingsboard VARCHAR(255) NOT NULL,
-  name VARCHAR(100) NOT NULL,
+  state VARCHAR(50) DEFAULT 'non configuré',
   created_at TIMESTAMP DEFAULT NOW()
 );

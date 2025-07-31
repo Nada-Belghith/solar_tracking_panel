@@ -57,4 +57,25 @@ router.post('/connect', authenticateToken, async (req, res) => {
   }
 });
 
+// Nouvelle route pour configurer un appareil
+router.post('/configureDevice', authenticateToken, async (req, res) => {
+  try {
+    const { panelId } = req.body;
+
+    if (!panelId) {
+      return res.status(400).json({ error: 'panelId est requis' });
+    }
+
+    const { configureDevice } = require('../services/thingsboard');
+
+    // Appeler la fonction configureDevice
+    await configureDevice(panelId);
+
+    res.json({ status: 'ok', message: 'Appareil configuré avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la configuration de l\'appareil:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 module.exports = router;

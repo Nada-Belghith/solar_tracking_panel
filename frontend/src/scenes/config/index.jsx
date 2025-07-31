@@ -248,6 +248,28 @@ const PanelConfig = () => {
       
       if (result) {
         console.log('✅ Configuration ESP réussie!');
+
+        // Appeler configureDevice pour mettre à jour l'état backend
+        console.log('🔄 Appel de configureDevice sur le backend...');
+        const token = localStorage.getItem('jwt');
+        const response = await fetch('http://localhost:3001/api/panels/configureDevice', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            panelId: selectedPanel,
+            configData
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Erreur lors de la configuration du panneau sur le backend');
+        }
+
+        console.log('✅ Configuration backend réussie!');
+
         alert(
           "Configuration réussie !\n\n" +
           "1. L'ESP va redémarrer et se connecter à votre réseau WiFi\n" +
