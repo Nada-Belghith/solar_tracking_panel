@@ -3,6 +3,7 @@ const WebSocket = require('ws');
 const config = require('../config');
 const { insertTelemetry } = require('./telemetry');
 const { Sequelize, DataTypes } = require('sequelize');
+const { broadcastTelemetry } = require('./clientWebSocket');
 
 let tbToken = null;
 let tokenExpires = 0;
@@ -193,6 +194,25 @@ function connectThingsBoardWS(io, deviceId, token) {
                     type: Sequelize.QueryTypes.SELECT,
                 }
             );
+            
+            // Préparer les données de télémétrie
+            const telemetryData = {
+              panelId: deviceId,
+              name: result.name,
+              data: {
+                temperature: payload.data.temperature ? Number(payload.data.temperature[0][1]) : null,
+                humidity: payload.data.humidity ? Number(payload.data.humidity[0][1]) : null,
+                luminosity1: payload.data.luminosity1 ? Number(payload.data.luminosity1[0][1]) : null,
+                luminosity2: payload.data.luminosity2 ? Number(payload.data.luminosity2[0][1]) : null,
+                luminosity3: payload.data.luminosity3 ? Number(payload.data.luminosity3[0][1]) : null,
+                timestamp: new Date().toISOString()
+              }
+            };
+
+            // Diffuser les données aux clients WebSocket connectés via le service clientWebSocket
+            broadcastTelemetry(deviceId, telemetryData);
+            // Diffuser les données aux clients WebSocket connectés
+            io.to(deviceId).emit(`telemetry:${deviceId}`, telemetryData);
 
             if (!result) {
                 throw new Error(`Aucun panneau trouvé pour le deviceId ${deviceId}`);

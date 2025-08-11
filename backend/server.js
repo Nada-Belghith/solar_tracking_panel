@@ -14,29 +14,25 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 
-// Import des configurations et services
 const config = require('./src/config');
 const authRoutes = require('./src/routes/auth');
 const clientsRoutes = require('./src/routes/clients');
 const thingsboardRoutes = require('./src/routes/thingsboard');
 const panelsRoutes = require('./src/routes/panels');
-const { connectThingsBoardWS, createTelemetryTable, insertTelemetryForPanel } = require('./src/services/thingsboard');
+const { connectThingsBoardWS } = require('./src/services/thingsboard');
 
 // ───────────────────────────────────────────────
 // Initialisation Express + Middleware
 // ───────────────────────────────────────────────
 const app = express();
-
-// Création du serveur HTTP et configuration de Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: config.cors.origins,
-    methods: ["GET", "POST"]
+    methods: ['GET', 'POST']
   }
 });
 
-// Middleware de base
 app.use(express.json());
 app.use(cors({
   origin: function (origin, callback) {
@@ -47,10 +43,11 @@ app.use(cors({
   }
 }));
 
-// Configuration Passport
 app.use(passport.initialize());
 
-// Configuration de Passport Google Strategy
+// ───────────────────────────────────────────────
+// Configuration Passport Google
+// ───────────────────────────────────────────────
 passport.use(new GoogleStrategy({
   clientID: config.google.clientId,
   clientSecret: config.google.clientSecret,
@@ -60,14 +57,14 @@ passport.use(new GoogleStrategy({
 }));
 
 // ───────────────────────────────────────────────
-// Configuration des routes
+// Routes REST
 // ───────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/', clientsRoutes);
 app.use('/api/panels', panelsRoutes);
 app.use('/api', thingsboardRoutes);
 
-// Routes d'authentification Google OAuth
+// Google OAuth
 app.get('/api/auth/google', passport.authenticate('google', {
   scope: ['profile', 'email'],
   prompt: 'select_account'
@@ -79,15 +76,11 @@ app.get('/api/auth/google/callback', passport.authenticate('google', {
 }), async (req, res) => {
   try {
     const user = req.user;
-    console.log('✅ Utilisateur Google authentifié:', user.displayName);
-
     const token = jwt.sign({
       name: user.displayName,
       email: user.emails[0].value,
       picture: user.photos[0].value
     }, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
-
-    console.log('🔑 Token généré:', token); // Log du token généré
 
     res.redirect(`${process.env.FRONT_URL || 'http://localhost:5000'}/auth/success?token=${token}`);
   } catch (error) {
@@ -96,73 +89,71 @@ app.get('/api/auth/google/callback', passport.authenticate('google', {
   }
 });
 
-// Map pour suivre les connexions par deviceId
+// ───────────────────────────────────────────────
+// WebSocket Logic
+// ───────────────────────────────────────────────
 const deviceConnections = new Map();
 
-// Gestion des connexions WebSocket
-io.on('connection', socket => {
-  const deviceId = socket.handshake.query.deviceId;
-  const panelName = socket.handshake.query.panelName; // Nom du panneau transmis par le client
+io.on('connection', (socket) => {
+  console.log('🟢 Nouvelle connexion WebSocket:', socket.id);
 
-  // Si ce deviceId a déjà une connexion active, fermer l'ancienne
-  if (deviceId && deviceConnections.has(deviceId)) {
-    const existingSocket = deviceConnections.get(deviceId);
-    console.log(`🔄 Fermeture de la connexion existante pour le deviceId: ${deviceId}`);
-    existingSocket.disconnect(true);
-  }
-
-  // Enregistrer la nouvelle connexion
-  if (deviceId) {
-    deviceConnections.set(deviceId, socket);
-  }
-
-  console.log('🟢 Client WebSocket connecté:', socket.id);
-  console.log(`📊 Nombre total de connexions actives: ${io.engine.clientsCount}`);
-
-  // Créer une table pour le panneau si elle n'existe pas
-  if (panelName) {
-    createTelemetryTable(panelName).catch(err => {
-      console.error(`❌ Erreur lors de la création de la table pour ${panelName}:`, err.message);
-    });
-  }
-
-  // Écouter uniquement les événements de connexion/déconnexion
-  socket.on('disconnect', (reason) => {
-    // Supprimer la connexion de notre map si c'était la dernière pour ce deviceId
-    if (deviceId && deviceConnections.get(deviceId)?.id === socket.id) {
-      deviceConnections.delete(deviceId);
+  socket.on('subscribe', ({ deviceId, token }) => {
+    if (!deviceId || !token) {
+      console.error('❌ deviceId ou token manquant');
+      return;
     }
 
-    console.log(`🔴 Client WebSocket déconnecté (${reason}):`, socket.id);
-    console.log(`📊 Nombre de connexions restantes: ${io.engine.clientsCount - 1}`);
-    console.log(`📊 Nombre de devices connectés: ${deviceConnections.size}`);
-  });
+    let isValidToken = true;
+    try {
+      if (token.split('.').length === 3) {
+        const decoded = jwt.verify(token, config.jwt.secret);
+        console.log('✅ JWT vérifié pour:', decoded.email || decoded.name);
+      } else {
+        console.log('ℹ️ Token non-JWT accepté (ThingsBoard)');
+      }
+    } catch (err) {
+      console.error('❌ Token JWT invalide:', err.message);
+      isValidToken = false;
+    }
 
-  socket.on('selectClient', ({ deviceId, token }) => {
-    console.log(`🔧 Client sélectionné: deviceId=${deviceId}`);
+    if (!isValidToken) return;
 
-    // Connecter au WebSocket ThingsBoard pour ce client
-    connectThingsBoardWS(io, deviceId, token).catch((err) => {
-      console.error(`Erreur lors de la connexion au WebSocket pour ${deviceId}:`, err.message);
-    });
-  });
+    socket.join(deviceId);
+    deviceConnections.set(deviceId, socket);
 
-  socket.on('telemetry', (data) => {
-    if (panelName) {
-      insertTelemetryForPanel(panelName, data).catch(err => {
-        console.error(`❌ Erreur lors de l'insertion des télémétries pour ${panelName}:`, err.message);
+    console.log(`📡 Souscription au device ${deviceId}`);
+
+    connectThingsBoardWS(io, deviceId, token)
+      .catch((err) => {
+        console.error(`❌ Erreur ThingsBoard WebSocket pour ${deviceId}:`, err.message);
       });
+  });
+
+  socket.on('unsubscribe', ({ deviceId }) => {
+    console.log(`🔴 Désabonnement du deviceId: ${deviceId}`);
+    socket.leave(deviceId);
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log(`🔴 Déconnexion (${reason}):`, socket.id);
+    for (let [id, s] of deviceConnections.entries()) {
+      if (s.id === socket.id) {
+        deviceConnections.delete(id);
+        break;
+      }
     }
   });
 });
 
-// Démarrage du serveur
+// ───────────────────────────────────────────────
+// Démarrage serveur
+// ───────────────────────────────────────────────
 const port = process.env.PORT || 3001;
 server.listen(port, () => {
-  console.log(`🚀 Serveur démarré sur le port ${port}`);
+  console.log(`🚀 Serveur backend démarré sur le port ${port}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.log('❌ Port ' + port + ' est déjà utilisé. Tentative avec le port ' + (port + 1));
+    console.log(`❌ Port ${port} utilisé. Tentative avec le port ${port + 1}`);
     server.listen(port + 1);
   } else {
     console.error('❌ Erreur serveur:', err);

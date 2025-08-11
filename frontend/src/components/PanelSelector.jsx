@@ -4,12 +4,11 @@ import { tokens } from '../theme';
 import { useTheme } from '@mui/material';
 import io from 'socket.io-client';
 
-const socket = io('http://localhost:3000'); // URL du backend
-
 const PanelSelector = ({ onPanelChange }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
-  const [selectedPanel, setSelectedPanel] = useState(localStorage.getItem('selectedDevice') || '');
+  const [socket, setSocket] = useState(null);
+  const [selectedPanel, setSelectedPanel] = useState('');  // Initialize with empty string
   const [panels, setPanels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -30,6 +29,12 @@ const PanelSelector = ({ onPanelChange }) => {
         
         const data = await response.json();
         setPanels(data);
+        
+        // Set the selected panel from localStorage only if it exists in the fetched panels
+        const savedPanel = localStorage.getItem('selectedDevice');
+        if (savedPanel && data.some(panel => panel.id === savedPanel)) {
+          setSelectedPanel(savedPanel);
+        }
       } catch (err) {
         setError('Erreur lors du chargement des panneaux');
         console.error(err);
@@ -63,20 +68,37 @@ const PanelSelector = ({ onPanelChange }) => {
   };
 
   useEffect(() => {
-    if (selectedClient) {
+    // Initialize socket connection only when needed
+    if (selectedClient && !socket) {
+      const newSocket = io('http://localhost:3001');
+      setSocket(newSocket);
+    }
+  }, [selectedClient, socket]);
+
+  useEffect(() => {
+    if (selectedClient && socket) {
       socket.emit('selectClient', selectedClient);
 
-      socket.on(`telemetry:${selectedClient.deviceId}`, (data) => {
+      const handleTelemetry = (data) => {
         setTelemetryData(data);
-      });
-    }
+      };
 
+      socket.on(`telemetry:${selectedClient.deviceId}`, handleTelemetry);
+
+      return () => {
+        socket.off(`telemetry:${selectedClient.deviceId}`, handleTelemetry);
+      };
+    }
+  }, [selectedClient, socket]);
+
+  // Cleanup socket on component unmount
+  useEffect(() => {
     return () => {
-      if (selectedClient) {
-        socket.off(`telemetry:${selectedClient.deviceId}`);
+      if (socket) {
+        socket.disconnect();
       }
     };
-  }, [selectedClient]);
+  }, [socket]);
 
   return (
     <Box mb={3}>
@@ -116,21 +138,7 @@ const PanelSelector = ({ onPanelChange }) => {
         </Select>
       </FormControl>
 
-      <div>
-        <h1>Sélectionnez un client</h1>
-        <select onChange={(e) => setSelectedClient(JSON.parse(e.target.value))}>
-          {/* Remplir avec les clients */}
-          <option value='{"deviceId":"123", "token":"abc"}'>Client 1</option>
-          <option value='{"deviceId":"456", "token":"def"}'>Client 2</option>
-        </select>
-
-        {telemetryData && (
-          <div>
-            <h2>Données de télémétrie</h2>
-            <pre>{JSON.stringify(telemetryData, null, 2)}</pre>
-          </div>
-        )}
-      </div>
+      
     </Box>
   );
 };
