@@ -210,9 +210,11 @@ function connectThingsBoardWS(io, deviceId, token) {
             };
 
             // Diffuser les données aux clients WebSocket connectés via le service clientWebSocket
-            broadcastTelemetry(deviceId, telemetryData);
             // Diffuser les données aux clients WebSocket connectés
-            io.to(deviceId).emit(`telemetry:${deviceId}`, telemetryData);
+            if (io) {
+              io.to(deviceId).emit(`telemetry:${deviceId}`, telemetryData);
+            }
+            broadcastTelemetry(deviceId, telemetryData);
 
             if (!result) {
                 throw new Error(`Aucun panneau trouvé pour le deviceId ${deviceId}`);

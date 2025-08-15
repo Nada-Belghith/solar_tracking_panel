@@ -34,6 +34,7 @@ const Dashboard = () => {
   const [panels, setPanels] = useState([]);
   const [telemetry, setTelemetry] = useState(getLastTelemetry());
   const socketRef = useRef(null); // Utilisation de useRef pour la socket
+  const activeDeviceRef = useRef(null); // deviceId actuellement abonné
 
   const initializeWebSocket = useCallback(async () => {
     try {
@@ -73,13 +74,34 @@ const Dashboard = () => {
         });
 
         // Écoute des événements
-        newSocket.on(`telemetry:${deviceId}`, (data) => {
-            console.log('📥 Données reçues dans le frontend:', data);
-            setTelemetry(data.data);
-        });
+        const handleTelemetry = (data) => {
+            try {
+                const currentDevice = localStorage.getItem('tbDeviceId');
+                // Vérifier que le socket est connecté et que l'abonnement correspond
+                if (!socketRef.current || !socketRef.current.connected) return;
+                if (!activeDeviceRef.current) return;
+                if (data && data.panelId && data.panelId === activeDeviceRef.current && data.panelId === currentDevice) {
+                    console.log('📥 Données affichées dans le dashboard:', {
+                        panelId: data.panelId,
+                        name: data.name,
+                        data: data.data
+                    });
+                    setTelemetry(data.data);
+                }
+                // Sinon: ne rien afficher (silencieux) pour éviter le chevauchement
+            } catch (err) {
+                console.error('Erreur lors du traitement de la télémétrie:', err);
+            }
+        };
+        
+        // S'assurer qu'aucun handler en double n'existe
+        newSocket.off(`telemetry:${deviceId}`);
+        newSocket.on(`telemetry:${deviceId}`, handleTelemetry);
 
         newSocket.on('connect', () => {
             console.log(`Connecté au serveur WebSocket pour le deviceId ${deviceId}`);
+            // Marquer device actif avant de demander la souscription
+            activeDeviceRef.current = deviceId;
             newSocket.emit('subscribe', { deviceId, token: deviceToken });
         });
 
@@ -183,6 +205,8 @@ const Dashboard = () => {
           }
           socketRef.current.disconnect();
           socketRef.current = null;
+          // Marquer qu'aucun device n'est actif après la déconnexion
+          activeDeviceRef.current = null;
           await new Promise(resolve => setTimeout(resolve, 1000));
           console.log('Socket déconnecté avec succès');
         } catch (error) {
@@ -201,7 +225,7 @@ const Dashboard = () => {
           tbDeviceToken: selectedPanelData.token_thingsboard
         });
       } catch (error) {
-        console.error('Erreur lors de la sauvegarde dans localStorage:', error);
+        console.error('Erreur lors de la mise à jour du localStorage:', error);
       }
       
       // Finalement, mettre à jour l'état et initialiser le nouveau socket
