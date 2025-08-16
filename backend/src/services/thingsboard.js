@@ -143,7 +143,13 @@ function connectThingsBoardWS(io, deviceId, token) {
     // Vérifier si une WebSocket existe déjà pour ce deviceId
     if (activeConnections.has(deviceId)) {
       console.warn(`⚠️ Une WebSocket existe déjà pour le device ${deviceId}.`);
-      return resolve(activeConnections.get(deviceId));
+      const existingWs = activeConnections.get(deviceId);
+      // Si on reçoit maintenant l'instance 'io', attacher-la à la connexion existante
+      if (io) {
+        existingWs._io = io;
+        console.log(`🔁 'io' attaché à la WebSocket existante pour ${deviceId}`);
+      }
+      return resolve(existingWs);
     }
 
     // Obtenir le token JWT pour l'authentification WebSocket
@@ -178,65 +184,114 @@ function connectThingsBoardWS(io, deviceId, token) {
       resolve(ws);
     });
 
-    ws.on('message', async (msg) => {
-      console.log('📥 Message reçu de ThingsBoard:', msg);
-      const payload = JSON.parse(msg);
+    // Prevent attaching multiple handlers on the same ws instance
+    if (!ws._hasTelemetryHandler) {
+      ws._hasTelemetryHandler = true;
+      ws.on('message', async (msg) => {
+        console.log('📥 Message reçu de ThingsBoard:', msg);
+        const payload = JSON.parse(msg);
 
-      if (payload.data) {
-        console.log('📦 Données brutes reçues:', payload.data);
+        if (payload.data) {
+          console.log('📦 Données brutes reçues:', payload.data);
 
-        // Récupérer le nom du panneau depuis la base de données
-        try {
+          // Récupérer le nom du panneau depuis la base de données
+          try {
             const [result] = await sequelize.query(
-                `SELECT name FROM solar_panel WHERE device_id_thingsboard = :deviceId`,
-                {
-                    replacements: { deviceId },
-                    type: Sequelize.QueryTypes.SELECT,
-                }
+              `SELECT name FROM solar_panel WHERE device_id_thingsboard = :deviceId`,
+              {
+                replacements: { deviceId },
+                type: Sequelize.QueryTypes.SELECT,
+              }
             );
-            
-            // Préparer les données de télémétrie
+
+            if (!result) {
+              throw new Error(`Aucun panneau trouvé pour le deviceId ${deviceId}`);
+            }
+
+            const { name: panelName } = result;
+
+            // Determine a timestamp for the payload (prefer provided timestamps if available)
+            const timestampMs = (payload.data.luminosity1 && payload.data.luminosity1[0] && payload.data.luminosity1[0][0])
+              || (payload.data.temperature && payload.data.temperature[0] && payload.data.temperature[0][0])
+              || Date.now();
+
             const telemetryData = {
               panelId: deviceId,
-              name: result.name,
+              name: panelName,
               data: {
                 temperature: payload.data.temperature ? Number(payload.data.temperature[0][1]) : null,
                 humidity: payload.data.humidity ? Number(payload.data.humidity[0][1]) : null,
                 luminosity1: payload.data.luminosity1 ? Number(payload.data.luminosity1[0][1]) : null,
                 luminosity2: payload.data.luminosity2 ? Number(payload.data.luminosity2[0][1]) : null,
                 luminosity3: payload.data.luminosity3 ? Number(payload.data.luminosity3[0][1]) : null,
-                timestamp: new Date().toISOString()
+                timestamp: new Date(timestampMs).toISOString()
               }
             };
 
-            // Diffuser les données aux clients WebSocket connectés via le service clientWebSocket
-            // Diffuser les données aux clients WebSocket connectés
-            if (io) {
-              io.to(deviceId).emit(`telemetry:${deviceId}`, telemetryData);
+            // Diffuser aux clients (utiliser l'instance io attachée à la WebSocket si disponible)
+            try {
+              const emitter = (ws && ws._io) ? ws._io : io;
+              if (emitter) {
+                emitter.to(deviceId).emit(`telemetry:${deviceId}`, telemetryData);
+              }
+            } catch (emitErr) {
+              console.error('Erreur lors de l\'émission via socket.io:', emitErr.message || emitErr);
             }
             broadcastTelemetry(deviceId, telemetryData);
 
-            if (!result) {
-                throw new Error(`Aucun panneau trouvé pour le deviceId ${deviceId}`);
-            }
-
-            const { name: panelName } = result;
-            
-            // Insérer les données dans la table correspondante
+            // Insérer les données dans la table correspondante, en évitant les doublons
             const TelemetryModel = defineTelemetryModel(panelName);
-          await TelemetryModel.create({
-            temperature: payload.data.temperature ? Number(payload.data.temperature[0][1]) : null,
-            humidity: payload.data.humidity ? Number(payload.data.humidity[0][1]) : null,
-            luminosity1: payload.data.luminosity1 ? Number(payload.data.luminosity1[0][1]) : null,
-            luminosity2: payload.data.luminosity2 ? Number(payload.data.luminosity2[0][1]) : null,
-            luminosity3: payload.data.luminosity3 ? Number(payload.data.luminosity3[0][1]) : null,
-          });
-          console.log(`✅ Données insérées dans la table pour le device ${deviceId}`);
-        } catch (err) {
-          console.error(`❌ Erreur lors de l'insertion des données pour le device ${deviceId}:`, err.message);
+
+            try {
+              const last = await TelemetryModel.findOne({ order: [['timestamp', 'DESC']] });
+              let isDuplicate = false;
+              if (last && last.timestamp) {
+                const lastTs = new Date(last.timestamp).getTime();
+                // Compare timestamps exactly
+                if (lastTs === Number(timestampMs)) {
+                  isDuplicate = true;
+                } else {
+                  // Fallback: compare key numeric fields to detect duplicate payloads
+                  const eps = 0.0001;
+                  const numEq = (a, b) => {
+                    if (a == null && b == null) return true;
+                    if (a == null || b == null) return false;
+                    return Math.abs(Number(a) - Number(b)) <= eps;
+                  };
+                  if (
+                    numEq(last.luminosity1, telemetryData.data.luminosity1) &&
+                    numEq(last.luminosity2, telemetryData.data.luminosity2) &&
+                    numEq(last.luminosity3, telemetryData.data.luminosity3) &&
+                    numEq(last.temperature, telemetryData.data.temperature) &&
+                    numEq(last.humidity, telemetryData.data.humidity)
+                  ) {
+                    isDuplicate = true;
+                  }
+                }
+              }
+
+              if (isDuplicate) {
+                console.log(`⚠️ Duplicate telemetry detected for ${panelName}, skipping insert (device ${deviceId})`);
+              } else {
+                await TelemetryModel.create({
+                  temperature: telemetryData.data.temperature,
+                  humidity: telemetryData.data.humidity,
+                  luminosity1: telemetryData.data.luminosity1,
+                  luminosity2: telemetryData.data.luminosity2,
+                  luminosity3: telemetryData.data.luminosity3,
+                  timestamp: new Date(timestampMs)
+                });
+                console.log(`✅ Données insérées dans la table pour le device ${deviceId}`);
+              }
+            } catch (dbErr) {
+              console.error(`❌ Erreur lors de l'insertion/verification pour ${deviceId}:`, dbErr.message || dbErr);
+            }
+          } catch (err) {
+            console.error(`❌ Erreur lors du traitement du message pour le device ${deviceId}:`, err.message || err);
+          }
         }
-      }
-    });
+      });
+    }
 
     ws.on('close', async (code, reason) => {
       console.log(`WS déconnecté avec code ${code} et raison: ${reason}`);

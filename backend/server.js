@@ -20,6 +20,7 @@ const clientsRoutes = require('./src/routes/clients');
 const thingsboardRoutes = require('./src/routes/thingsboard');
 const panelsRoutes = require('./src/routes/panels');
 const { connectThingsBoardWS } = require('./src/services/thingsboard');
+const { initializeWebSockets } = require('./src/services/wsInitializer');
 
 // ───────────────────────────────────────────────
 // Initialisation Express + Middleware
@@ -151,6 +152,10 @@ io.on('connection', (socket) => {
 const port = process.env.PORT || 3001;
 server.listen(port, () => {
   console.log(`🚀 Serveur backend démarré sur le port ${port}`);
+  // Initialiser automatiquement les WebSockets pour tous les panneaux configurés
+  initializeWebSockets()
+    .then(() => console.log('✅ Initialisation automatique des WebSockets terminée'))
+    .catch((err) => console.error('❌ Erreur lors de l\'initialisation automatique des WebSockets:', err));
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.log(`❌ Port ${port} utilisé. Tentative avec le port ${port + 1}`);
