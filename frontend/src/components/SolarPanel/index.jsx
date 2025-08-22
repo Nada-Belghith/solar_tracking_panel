@@ -1,7 +1,8 @@
 import { Box, Typography, useTheme } from "@mui/material";
+import { useState, useEffect } from "react";
 import { tokens } from "../../theme";
 
-const SensorValue = ({ value, position }) => {
+const SensorValue = ({ value, unit, position }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
@@ -41,7 +42,7 @@ const SensorValue = ({ value, position }) => {
           fontSize: '0.9rem'
         }}
       >
-        lux
+        {unit}
       </Typography>
     </Box>
   );
@@ -71,9 +72,25 @@ const ConnectingLine = ({ start, end, color }) => (
   </svg>
 );
 
-const SolarPanel = ({ luminosity1, luminosity2, luminosity3 }) => {
+const SolarPanel = ({ luminosity1, luminosity2, luminosity3, temperature, pressure, windSpeed }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const [sensorData, setSensorData] = useState({
+    luminosity1: null,
+    luminosity2: null,
+    luminosity3: null
+  });
+
+  useEffect(() => {
+    // Ne mettre à jour les données que si toutes les valeurs sont disponibles
+    if (luminosity1 !== null && luminosity2 !== null && luminosity3 !== null) {
+      setSensorData({
+        luminosity1,
+        luminosity2,
+        luminosity3
+      });
+    }
+  }, [luminosity1, luminosity2, luminosity3]);
 
   return (
     <Box
@@ -120,7 +137,8 @@ const SolarPanel = ({ luminosity1, luminosity2, luminosity3 }) => {
 
         {/* Capteurs de luminosité */}
         <SensorValue
-          value={luminosity1}
+          value={sensorData.luminosity1}
+          unit="lux"
           position={{
             top: '0px',
             left: '50%',
@@ -128,7 +146,8 @@ const SolarPanel = ({ luminosity1, luminosity2, luminosity3 }) => {
           }}
         />
         <SensorValue
-          value={luminosity2}
+          value={sensorData.luminosity2}
+          unit="lux"
           position={{
             top: '42%',
             left: '25px',
@@ -136,7 +155,8 @@ const SolarPanel = ({ luminosity1, luminosity2, luminosity3 }) => {
           }}
         />
         <SensorValue
-          value={luminosity3}
+          value={sensorData.luminosity3}
+          unit="lux"
           position={{
             top: '42%',
             right: '25px',

@@ -66,6 +66,8 @@ router.post('/configureDevice', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'panelId est requis' });
     }
 
+    console.log('🔍 panelId reçu dans /configureDevice:', panelId);
+
     const { configureDevice } = require('../services/thingsboard');
 
     // Appeler la fonction configureDevice

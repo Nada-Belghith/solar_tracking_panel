@@ -11,6 +11,7 @@ import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import { useEffect, useState, useCallback, useRef } from "react";
 import io from "socket.io-client";
 import { mockTransactions } from "../../data/mockData";
+import axios from 'axios';
 
 const Dashboard = () => {
   const theme = useTheme();
@@ -23,10 +24,12 @@ const Dashboard = () => {
     }
     return {
       temperature: null,
-      humidity: null,
       luminosity1: null,
       luminosity2: null,
       luminosity3: null,
+      production: null,
+      pressure: null,
+      windSpeed: null,
     };
   };
 
@@ -35,6 +38,53 @@ const Dashboard = () => {
   const [telemetry, setTelemetry] = useState(getLastTelemetry());
   const socketRef = useRef(null); // Utilisation de useRef pour la socket
   const activeDeviceRef = useRef(null); // deviceId actuellement abonné
+
+  // Helper: format telemetry values similarly to LiveTelemetry (toFixed) and provide a small status label
+  const formatTelemetryValue = (val, decimals = 1) => {
+    if (val === null || typeof val === 'undefined') return null;
+    const n = Number(val);
+    if (Number.isNaN(n)) return null;
+    return n.toFixed(decimals);
+  };
+
+  const telemetryStatus = (key, val) => {
+    if (val === null || typeof val === 'undefined') return 'N/A';
+    const n = Number(val);
+    if (Number.isNaN(n)) return 'N/A';
+    switch (key) {
+      case 'temperature':
+        return n > 25 ? 'Élevée' : 'Normale';
+      case 'pressure':
+        return n > 1013 ? 'Haut' : 'Normal';
+      case 'windSpeed':
+        return n > 10 ? 'Fort' : 'Faible';
+      default:
+        return '';
+    }
+  };
+
+  // Normalize incoming telemetry so numeric fields are converted to Number or null
+  const normalizeTelemetry = (raw) => {
+    if (!raw || typeof raw !== 'object') return raw || {};
+    const out = { ...raw };
+  const numericKeys = ['temperature', 'pressure', 'windSpeed', 'production', 'luminosity1', 'luminosity2', 'luminosity3'];
+    numericKeys.forEach((k) => {
+      const v = out[k];
+      let candidate = v;
+      // handle ThingsBoard style objects { value: ... } or arrays
+      if (v && typeof v === 'object') {
+        if ('value' in v) candidate = v.value;
+        else if (Array.isArray(v) && v.length > 0) candidate = v[0];
+      }
+      if (candidate === null || candidate === undefined || candidate === '') {
+        out[k] = null;
+        return;
+      }
+      const n = Number(candidate);
+      out[k] = Number.isNaN(n) ? null : n;
+    });
+    return out;
+  };
 
   const initializeWebSocket = useCallback(async () => {
     try {
@@ -80,7 +130,7 @@ const Dashboard = () => {
                 // Vérifier que le socket est connecté et que l'abonnement correspond
                 if (!socketRef.current || !socketRef.current.connected) return;
                 if (!activeDeviceRef.current) return;
-                if (data && data.panelId && data.panelId === activeDeviceRef.current && data.panelId === currentDevice) {
+                        if (data && data.panelId && data.panelId === activeDeviceRef.current && data.panelId === currentDevice) {
                     console.log('📥 Données affichées dans le dashboard:', {
                         panelId: data.panelId,
                         name: data.name,
@@ -236,6 +286,66 @@ const Dashboard = () => {
     }
   };
 
+  const getValueFromDataList = useCallback((dataList, key) => {
+    const entry = dataList.find(item => item.key === key);
+    if (!entry) return null;
+    const value = parseFloat(entry.value);
+    return isNaN(value) ? entry.value : value;
+  }, []);
+
+  const fetchAllData = useCallback(async (deviceSn) => {
+    try {
+      console.log('Fetching data for deviceSn:', deviceSn);
+      const response = await axios.post("http://localhost:3001/solarman/currentData", { deviceSn });
+      console.log('Response from currentData:', response);
+      
+      if (response.data?.success && response.data.dataList) {
+        const dataList = response.data.dataList;
+        
+        // Retourner un objet avec toutes les données organisées
+        return {
+          // Production actuelle en Watts (APo_t1)
+          production: getValueFromDataList(dataList, 'APo_t1') || null,
+          // Production journalière en kWh (Etdy_ge1)
+          dailyProduction: getValueFromDataList(dataList, 'Etdy_ge1') || null,
+          // Production cumulée en kWh (Et_ge0)
+          totalProduction: getValueFromDataList(dataList, 'Et_ge0') || null,
+          // Température de l'onduleur en °C (INV_T0)
+          temperature: getValueFromDataList(dataList, 'INV_T0') || null,
+          // Status de l'onduleur (INV_ST1)
+          inverterStatus: getValueFromDataList(dataList, 'INV_ST1') || null,
+          // Puissance DC des panneaux (DP1 + DP2)
+          dcPower: (getValueFromDataList(dataList, 'DP1') || 0) + (getValueFromDataList(dataList, 'DP2') || 0),
+          // Tension DC des panneaux (DV1, DV2)
+          dcVoltage1: getValueFromDataList(dataList, 'DV1') || null,
+          dcVoltage2: getValueFromDataList(dataList, 'DV2') || null,
+          // Temps de fonctionnement en heures (t_w_hou1)
+          runningHours: getValueFromDataList(dataList, 't_w_hou1') || null,
+        };
+      }
+
+      console.error("Data not found in response:", response.data);
+      return null;
+    } catch (error) {
+      console.error("Error fetching data:", error.response?.data || error);
+      return null;
+    }
+  }, [getValueFromDataList]);
+
+  // Fetch all data and update telemetry state
+  useEffect(() => {
+    const deviceSn = 'SA3ES211N49240'; // Replace with actual device serial number
+    fetchAllData(deviceSn).then((data) => {
+      if (data !== null) {
+        console.log('All sensor data:', data);
+        setTelemetry(prev => ({
+          ...prev,
+          ...data
+        }));
+      }
+    });
+  }, [fetchAllData]); // Ajout de fetchAllData comme dépendance
+
   return (
     <Box m="20px">
       {/* HEADER WITH PANEL SELECTOR */}
@@ -263,14 +373,59 @@ const Dashboard = () => {
       {/* GRID & CHARTS */}
       <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="20px">
         {/* ROW 1 */}
-        <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
-          <StatBox title="5.2 kWh" subtitle="Production actuelle" progress="0.85" increase="+8% aujourd'hui" icon={<span role="img" aria-label="Soleil" style={{ fontSize: 26 }}>☀️</span>} />
+        <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
+          <StatBox
+            title={telemetry.dailyProduction != null ? `${telemetry.dailyProduction} kWh` : "-- kWh"}
+            subtitle="Production journalière"
+            progress={telemetry.dailyProduction != null ? String(Math.min(1, telemetry.dailyProduction / 10)) : "0.0"}
+            increase={telemetry.inverterStatus || ""}
+            icon={<span role="img" aria-label="Soleil" style={{ fontSize: 26 }}>☀️</span>}
+          />
         </Box>
-        <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
-          <StatBox title={telemetry.temperature != null ? `${Number(telemetry.temperature).toFixed(1)}°C` : "--"} subtitle="Température du panneau" progress="0.60" increase={telemetry.temperature != null ? `${telemetry.temperature}°C` : "N/A"} icon={<span role="img" aria-label="Thermomètre" style={{ fontSize: 26 }}>🌡️</span>} />
+        <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
+          <StatBox
+            title={formatTelemetryValue(telemetry.temperature) != null ? `${formatTelemetryValue(telemetry.temperature)}°C` : "--"}
+            subtitle="Température"
+            progress={telemetry.temperature != null ? String(Math.min(1, Number(telemetry.temperature) / 50)) : "0.0"}
+            increase={telemetryStatus('temperature', telemetry.temperature)}
+            icon={<span role="img" aria-label="Thermomètre" style={{ fontSize: 26 }}>🌡️</span>}
+          />
         </Box>
-        <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
-          <StatBox title="OK" subtitle="Système opérationnel" progress="1.00" increase="" icon={<span role="img" aria-label="Panneau solaire" style={{ fontSize: 26 }}>☀️</span>} />
+        <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
+          <StatBox
+            title={formatTelemetryValue(telemetry.pressure) != null ? `${formatTelemetryValue(telemetry.pressure)} hPa` : "-- hPa"}
+            subtitle="Pression"
+            progress={telemetry.pressure != null ? String(Math.min(1, (Number(telemetry.pressure) / 1100))) : "0.0"}
+            increase={telemetryStatus('pressure', telemetry.pressure)}
+            icon={
+              <svg width="26" height="26" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <defs>
+                  <linearGradient id="gaugeGrad" x1="0" x2="1">
+                    <stop offset="0" stopColor="#4caf50" />
+                    <stop offset="0.6" stopColor="#ffeb3b" />
+                    <stop offset="1" stopColor="#f44336" />
+                  </linearGradient>
+                </defs>
+                {/* outer light arc */}
+                <path d="M8 44 A24 24 0 0 1 56 44" fill="none" stroke="#e0e0e0" strokeWidth="6" strokeLinecap="round" />
+                {/* colored arc */}
+                <path d="M12 44 A20 20 0 0 1 52 44" fill="none" stroke="url(#gaugeGrad)" strokeWidth="6" strokeLinecap="round" />
+                {/* hub */}
+                <circle cx="32" cy="44" r="4" fill="#fffefeff" />
+                {/* needle */}
+                <line x1="32" y1="44" x2="46" y2="26" stroke="#fdf8f8ff" strokeWidth="3" strokeLinecap="round" />
+              </svg>
+            }
+          />
+        </Box>
+        <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
+          <StatBox
+            title={formatTelemetryValue(telemetry.windSpeed) != null ? `${formatTelemetryValue(telemetry.windSpeed)} m/s` : "-- m/s"}
+            subtitle="Vitesse du vent"
+            progress={telemetry.windSpeed != null ? String(Math.min(1, Number(telemetry.windSpeed) / 30)) : "0.0"}
+            increase={telemetryStatus('windSpeed', telemetry.windSpeed)}
+            icon={<img src="/assets/vent.png" alt="Vitesse du vent" style={{ width: 26, height: 26, objectFit: 'contain' }} />}
+          />
         </Box>
         <Box gridColumn="span 4" gridRow="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
           <SolarPanel luminosity1={telemetry.luminosity1} luminosity2={telemetry.luminosity2} luminosity3={telemetry.luminosity3} />

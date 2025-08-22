@@ -10,7 +10,7 @@ async function initializeWebSockets() {
     try {
         // Récupérer tous les panneaux configurés
         const configuredPanels = await sequelize.query(
-            `SELECT device_id_thingsboard, token_thingsboard FROM solar_panel WHERE state = 'configuré'`,
+            `SELECT device_id_thingsboard, token_thingsboard FROM solar_panel WHERE state = 'configure'`,
             {
                 type: Sequelize.QueryTypes.SELECT,
             }

@@ -5,12 +5,12 @@ const pool = new Pool({
   connectionString: config.db.url || 'postgresql://postgres@localhost:5432/solarpanel'
 });
 
-async function insertTelemetry({ humidity = null, temperature = null, luminosity1 = null, luminosity2 = null, luminosity3 = null }) {
+async function insertTelemetry({ temperature = null, luminosity1 = null, luminosity2 = null, luminosity3 = null, pressure = null, windSpeed = null }) {
   try {
     await pool.query(
-      `INSERT INTO telemetry (humidity, temperature, luminosity1, luminosity2, luminosity3, created_at) 
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [humidity, temperature, luminosity1, luminosity2, luminosity3]
+      `INSERT INTO telemetry (temperature, luminosity1, luminosity2, luminosity3, pressure, windSpeed, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [temperature, luminosity1, luminosity2, luminosity3, pressure, windSpeed]
     );
     console.log('✅ Télémétrie insérée avec succès');
   } catch (error) {

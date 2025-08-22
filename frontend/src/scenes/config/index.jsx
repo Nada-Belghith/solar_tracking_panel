@@ -208,7 +208,7 @@ const PanelConfig = () => {
     try {
       console.log('🔍 Vérification de la connexion ESP...');
       // Vérifier que le formulaire de configuration est accessible
-      const response = await fetch('http://192.168.4.1/', {
+      await fetch('http://192.168.4.1/', {
         mode: 'no-cors',
         timeout: 5000
       });
@@ -252,23 +252,35 @@ const PanelConfig = () => {
         // Appeler configureDevice pour mettre à jour l'état backend
         console.log('🔄 Appel de configureDevice sur le backend...');
         const token = localStorage.getItem('jwt');
-        const response = await fetch('http://localhost:3001/api/panels/configureDevice', {
+        // Récupérer panelId (device_id ThingsBoard) depuis deviceInfo
+        const panelId = deviceInfo.deviceId;
+
+        // Appel au backend et gestion de la réponse
+        const backendResp = await fetch('http://localhost:3001/api/panels/configureDevice', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            panelId: selectedPanel,
+            panelId,
             configData
           })
         });
 
-        if (!response.ok) {
+        if (!backendResp.ok) {
+          const body = await backendResp.text().catch(() => null);
+          console.error('❌ Erreur backend configureDevice', backendResp.status, body);
           throw new Error('Erreur lors de la configuration du panneau sur le backend');
         }
 
         console.log('✅ Configuration backend réussie!');
+
+        // Mettre à jour l'UI localement pour retirer le mode de configuration
+        setShowConfirmButton(false);
+        setConfigStep(3);
+        setIsConfiguring(false);
+        setPanels(prev => prev.map(p => p.panel_id === selectedPanel ? { ...p, state: 'configuré' } : p));
 
         alert(
           "Configuration réussie !\n\n" +

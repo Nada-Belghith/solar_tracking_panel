@@ -19,6 +19,7 @@ const authRoutes = require('./src/routes/auth');
 const clientsRoutes = require('./src/routes/clients');
 const thingsboardRoutes = require('./src/routes/thingsboard');
 const panelsRoutes = require('./src/routes/panels');
+const solarmanRoutes = require('./src/routes/solarman');
 const { connectThingsBoardWS } = require('./src/services/thingsboard');
 const { initializeWebSockets } = require('./src/services/wsInitializer');
 
@@ -46,6 +47,25 @@ app.use(cors({
 
 app.use(passport.initialize());
 
+// Mount all routes
+app.use('/api/auth', authRoutes);
+app.use('/api/clients', clientsRoutes);
+app.use('/api/thingsboard', thingsboardRoutes);
+app.use('/api/panels', panelsRoutes);
+app.use('/solarman', solarmanRoutes);
+
+// Debug route to check if server is running
+app.get('/', (req, res) => {
+  res.json({ message: 'Server is running' });
+});
+
+// Mount routes
+app.use('/api/auth', authRoutes);
+app.use('/api/clients', clientsRoutes);
+app.use('/api/thingsboard', thingsboardRoutes);
+app.use('/api/panels', panelsRoutes);
+app.use('/solarman', solarmanRoutes);
+
 // ───────────────────────────────────────────────
 // Configuration Passport Google
 // ───────────────────────────────────────────────
@@ -64,6 +84,7 @@ app.use('/api/auth', authRoutes);
 app.use('/', clientsRoutes);
 app.use('/api/panels', panelsRoutes);
 app.use('/api', thingsboardRoutes);
+app.use('/solarman', solarmanRoutes);
 
 // Google OAuth
 app.get('/api/auth/google', passport.authenticate('google', {
