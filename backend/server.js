@@ -59,12 +59,6 @@ app.get('/', (req, res) => {
   res.json({ message: 'Server is running' });
 });
 
-// Mount routes
-app.use('/api/auth', authRoutes);
-app.use('/api/clients', clientsRoutes);
-app.use('/api/thingsboard', thingsboardRoutes);
-app.use('/api/panels', panelsRoutes);
-app.use('/solarman', solarmanRoutes);
 
 // ───────────────────────────────────────────────
 // Configuration Passport Google

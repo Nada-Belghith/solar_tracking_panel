@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { fetchToken, fetchCurrentData } = require('../services/solarman');
+const { fetchToken, fetchCurrentData, fetchPowerHistory } = require('../services/solarman');
 
 /**
  * POST /token
@@ -34,6 +34,29 @@ router.post('/currentData', async (req, res) => {
     return res.status(err.response?.status || 500).json(
       err.response?.data || { error: 'Failed to fetch current data' }
     );
+  }
+});
+
+/**
+ * GET /power-history/:deviceSn
+ * Récupère l'historique de puissance pour une date donnée
+ */
+router.get('/power-history/:deviceSn', async (req, res) => {
+  try {
+    const { deviceSn } = req.params;
+    const { year, month, day } = req.query;
+
+    if (!deviceSn || !year || !month || !day) {
+      return res.status(400).json({
+        error: 'Paramètres manquants. deviceSn, year, month et day sont requis.'
+      });
+    }
+
+    const powerHistory = await fetchPowerHistory(deviceSn, parseInt(year), parseInt(month), parseInt(day));
+    res.json(powerHistory);
+  } catch (error) {
+    console.error('Erreur lors de la récupération de l\'historique:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

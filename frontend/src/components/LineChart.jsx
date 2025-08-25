@@ -1,9 +1,8 @@
 import { ResponsiveLine } from "@nivo/line";
 import { useTheme } from "@mui/material";
 import { tokens } from "../theme";
-import { mockLineData as data } from "../data/mockData";
 
-const LineChart = ({ isCustomLineColors = false, isDashboard = false }) => {
+const LineChart = ({ data = [], isCustomLineColors = false, isDashboard = false }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
@@ -44,14 +43,18 @@ const LineChart = ({ isCustomLineColors = false, isDashboard = false }) => {
         },
       }}
       colors={isDashboard ? { datum: "color" } : { scheme: "nivo" }} // added
-      margin={{ top: 50, right: 110, bottom: 50, left: 60 }}
-      xScale={{ type: "point" }}
+      margin={{ top: 30, right: 110, bottom: 70, left: 60 }}
+      xScale={{ 
+        type: "point",
+        min: "00:00",
+        max: "24:00"
+      }}
       yScale={{
         type: "linear",
-        min: "auto",
-        max: "auto",
-        stacked: true,
-        reverse: false,
+        min: 0,
+        max: 3,
+        stacked: false,
+        reverse: false
       }}
       yFormat=" >-.2f"
       curve="catmullRom"
@@ -59,22 +62,25 @@ const LineChart = ({ isCustomLineColors = false, isDashboard = false }) => {
       axisRight={null}
       axisBottom={{
         orient: "bottom",
-        tickSize: 0,
+        tickSize: 5,
         tickPadding: 5,
         tickRotation: 0,
-        legend: isDashboard ? undefined : "transportation", // added
+        legend: isDashboard ? undefined : "Heure",
         legendOffset: 36,
         legendPosition: "middle",
+        tickValues: ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "24:00"],
+        format: (value) => value
       }}
       axisLeft={{
         orient: "left",
-        tickValues: 5, // added
-        tickSize: 3,
+        tickSize: 5,
         tickPadding: 5,
         tickRotation: 0,
-        legend: isDashboard ? undefined : "count", // added
-        legendOffset: -40,
+        legend: "Puissance (kW)",
+        legendOffset: -50,
         legendPosition: "middle",
+        tickValues: [0, 0.6, 1.2, 1.8, 2.4, 3.0],
+        format: value => value.toFixed(1)
       }}
       enableGridX={false}
       enableGridY={false}

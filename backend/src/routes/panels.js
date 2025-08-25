@@ -13,6 +13,7 @@ router.get('/list', authenticateToken, async (req, res) => {
         sp.name as panel_name,
         sp.device_id_thingsboard,
         sp.token_thingsboard,
+        sp.device_sn,
         c.name as client_name,
         c.address,
         c.latitude,
@@ -76,6 +77,34 @@ router.post('/configureDevice', authenticateToken, async (req, res) => {
     res.json({ status: 'ok', message: 'Appareil configuré avec succès' });
   } catch (error) {
     console.error('Erreur lors de la configuration de l\'appareil:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Endpoint: update the inverter serial for a panel
+router.post('/updateDeviceSN', authenticateToken, async (req, res) => {
+  try {
+    const { panelId, device_sn } = req.body;
+
+    if (!panelId || typeof device_sn === 'undefined') {
+      return res.status(400).json({ error: 'panelId et device_sn sont requis' });
+    }
+
+    console.log('Mise à jour device_sn pour panelId', panelId, '->', device_sn);
+
+    const result = await query(`
+      UPDATE solar_panel
+      SET device_sn = $1
+      WHERE id = $2
+    `, [device_sn, panelId]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Panneau non trouvé' });
+    }
+
+    res.json({ success: true, message: 'Numéro de série mis à jour' });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour du numéro de série:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });

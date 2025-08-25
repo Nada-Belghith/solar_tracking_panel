@@ -1,4 +1,8 @@
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const axios = require('axios');
+const config = require('../config');
+
+
 
 let cachedToken = null;
 let tokenExpiry = null;
@@ -15,13 +19,13 @@ const isTokenExpired = () => {
  */
 const fetchToken = async (bodyCreds = {}) => {
   const payload = {
-    email: "mourad.loulou@candela.com.tn",
-    password:"c52bb2d217642d1e42f64f9cdd8078f24790cb81a8fd47fe27f2b3ccb440aa31",
-    orgId: 84199,
-    appSecret:"bab5f8609f51ca02f6ac6615cbbf2a90",
+    email: config.solarman.email,
+    password: config.solarman.password,
+    orgId: config.solarman.orgId,
+    appSecret: config.solarman.appSecret,
   };
   const params = {
-    appId:"302407176243092",
+    appId:config.solarman.appId,
     language: 'en',
   };
 
@@ -66,4 +70,89 @@ const fetchCurrentData = async (deviceSn) => {
   return response.data;
 };
 
-module.exports = { fetchToken, fetchCurrentData };
+/**
+ * Fonction pour récupérer le siteId d'un onduleur à partir de son numéro de série
+ * @param {string} deviceSn - Le même numéro de série que celui utilisé dans fetchCurrentData
+ */
+const fetchDeviceSiteId = async (deviceSn) => {
+  if (isTokenExpired()) {
+    console.log('Token expired, fetching new one...');
+    await fetchToken();
+  }
+
+  try {
+    const response = await axios.get(
+      'https://globalpro.solarmanpv.com/maintain-s/operating/system/device/INVERTER/list',
+      {
+        headers: {
+          'Authorization': `Bearer ${cachedToken}`,
+          'Content-Type': 'application/json'
+        },
+        params: {
+          size: 50,
+          sn: deviceSn,
+          'order.direction': 'ASC',
+          'order.property': 'name',
+          powerTypeList: 'PV'
+        },
+        timeout: 10000
+      }
+    );
+
+    if (response.data && response.data.data && response.data.data.length > 0) {
+      const device = response.data.data[0];
+      return device.siteId;
+    }
+
+    throw new Error('Device not found or no siteId available');
+  } catch (error) {
+    console.error('Error fetching device siteId:', error.message);
+    throw error;
+  }
+};
+
+/**
+ * Fonction pour récupérer l'historique de puissance pour une date spécifique
+ * @param {string} deviceSn - Le numéro de série du dispositif
+ * @param {number} year - L'année (ex: 2025)
+ * @param {number} month - Le mois (1-12)
+ * @param {number} day - Le jour (1-31)
+ */
+const fetchPowerHistory = async (deviceSn, year, month, day) => {
+  if (isTokenExpired()) {
+    console.log('Token expired, fetching new one...');
+    await fetchToken();
+  }
+
+  try {
+    const siteId = await fetchDeviceSiteId(deviceSn);
+    
+    const response = await axios.get(
+      `https://globalpro.solarmanpv.com/maintain-s/history/power/${siteId}/record`,
+      {
+      headers: {
+        'Authorization': `Bearer ${cachedToken}`,
+        'Content-Type': 'application/json'
+      },
+      params: {
+        year,
+        month,
+        day: 24, // jour fixé à 24
+      },
+      timeout: 10000
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching power history:', error.message);
+    throw error;
+  }
+};
+
+module.exports = { 
+  fetchToken, 
+  fetchCurrentData,
+  fetchDeviceSiteId,
+  fetchPowerHistory
+};

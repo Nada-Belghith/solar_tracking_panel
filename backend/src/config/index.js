@@ -16,6 +16,14 @@ module.exports = {
     deviceId: process.env.TB_DEVICE,
     devicetoken: process.env.TB_DEVICETOKEN
   },
+  solarman: {
+    email: process.env.SOLARMAN_EMAIL ,
+    password: process.env.SOLARMAN_PASS,
+    orgId: process.env.SOLARMAN_ORG ,
+    appSecret: process.env.SOLARMAN_APPSECRET,
+    appId: process.env.SOLARMAN_APPID,
+  },
+  
   cors: {
     origins: [
       'http://localhost:5000',

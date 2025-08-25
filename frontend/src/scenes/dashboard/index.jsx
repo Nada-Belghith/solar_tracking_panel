@@ -1,4 +1,4 @@
-import { Box, Typography, useTheme, Select, MenuItem, FormControl, InputLabel } from "@mui/material";
+import { Box, Typography, useTheme, Select, MenuItem, FormControl, InputLabel, TextField } from "@mui/material";
 import { tokens } from "../../theme";
 import Header from "../../components/Header";
 import LineChart from "../../components/LineChart";
@@ -12,6 +12,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import io from "socket.io-client";
 import { mockTransactions } from "../../data/mockData";
 import axios from 'axios';
+import PowerChart from '../../components/PowerChart';
 
 const Dashboard = () => {
   const theme = useTheme();
@@ -35,7 +36,19 @@ const Dashboard = () => {
 
   const [selectedPanel, setSelectedPanel] = useState("");  // Initialize with empty string
   const [panels, setPanels] = useState([]);
-  const [telemetry, setTelemetry] = useState(getLastTelemetry());
+  const [telemetry, setTelemetry] = useState(getLastTelemetry()); // température, vent, lum, etc.
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [powerChartData, setPowerChartData] = useState({ usePower: [], generationPower: [] });
+  const [inverterData, setInverterData] = useState({
+  production: null,
+  dailyProduction: null,
+  totalProduction: null,
+  dcPower: null,
+  dcVoltage1: null,
+  dcVoltage2: null,
+  runningHours: null,
+  inverterStatus: null
+});
   const socketRef = useRef(null); // Utilisation de useRef pour la socket
   const activeDeviceRef = useRef(null); // deviceId actuellement abonné
 
@@ -63,28 +76,66 @@ const Dashboard = () => {
     }
   };
 
-  // Normalize incoming telemetry so numeric fields are converted to Number or null
-  const normalizeTelemetry = (raw) => {
-    if (!raw || typeof raw !== 'object') return raw || {};
-    const out = { ...raw };
-  const numericKeys = ['temperature', 'pressure', 'windSpeed', 'production', 'luminosity1', 'luminosity2', 'luminosity3'];
-    numericKeys.forEach((k) => {
-      const v = out[k];
-      let candidate = v;
-      // handle ThingsBoard style objects { value: ... } or arrays
-      if (v && typeof v === 'object') {
-        if ('value' in v) candidate = v.value;
-        else if (Array.isArray(v) && v.length > 0) candidate = v[0];
+  const fetchPowerHistoryData = useCallback(async () => {
+  if (!selectedPanel) return;
+
+  try {
+    console.log('🕒 Début de la récupération des données -', new Date().toLocaleString());
+
+    const deviceSn = localStorage.getItem("deviceSn");
+    const url = new URL(`http://localhost:3001/solarman/power-history/${deviceSn}`);
+    url.searchParams.append('year', selectedDate.getFullYear());
+    url.searchParams.append('month', selectedDate.getMonth() + 1);
+    url.searchParams.append('day', selectedDate.getDate());
+
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data && Array.isArray(data.records)) {
+      console.log('📊 Nombre de points de données:', data.records.length);
+
+      // Trier par dateTime croissant
+      const sortedRecords = [...data.records].sort((a, b) => a.dateTime - b.dateTime);
+
+      // Extraire les listes
+      const usePowerData = sortedRecords.map(r => r.usePower ?? 0);
+      const generationPowerData = sortedRecords.map(r => r.generationPower ?? 0);
+      const timeStamps = sortedRecords.map(r => new Date(r.dateTime * 1000).toLocaleTimeString());
+
+      console.log('⚡ usePowerData:', usePowerData);
+      console.log('☀️ generationPowerData:', generationPowerData);
+      console.log('🕒 timeStamps:', timeStamps);
+
+      // Store in component state for immediate use
+      setPowerChartData({
+        usePower: usePowerData.map((value, index) => ({ x: timeStamps[index], y: value })),
+        generationPower: generationPowerData.map((value, index) => ({ x: timeStamps[index], y: value }))
+      });
+
+      // Persist raw arrays to localStorage so other files/pages can read them
+      try {
+        localStorage.setItem('usePowerData', JSON.stringify(usePowerData));
+        localStorage.setItem('generationPowerData', JSON.stringify(generationPowerData));
+        localStorage.setItem('timeStamps', JSON.stringify(timeStamps));
+      } catch (e) {
+        console.warn('Unable to persist chart data to localStorage:', e);
       }
-      if (candidate === null || candidate === undefined || candidate === '') {
-        out[k] = null;
-        return;
-      }
-      const n = Number(candidate);
-      out[k] = Number.isNaN(n) ? null : n;
-    });
-    return out;
-  };
+    }
+  } catch (err) {
+    console.error('❌ Erreur lors de la récupération de l’historique:', err);
+  }
+}, [selectedPanel, selectedDate]);
+
+  // Appeler fetchPowerHistoryData quand la fonction change
+  useEffect(() => {
+    fetchPowerHistoryData();
+  }, [fetchPowerHistoryData]);
+
 
   const initializeWebSocket = useCallback(async () => {
     try {
@@ -264,23 +315,25 @@ const Dashboard = () => {
         }
       }
 
-      // Ensuite mettre à jour le localStorage
+      // Mettre à jour le localStorage
       try {
         localStorage.setItem("selectedDevice", panelId);
         localStorage.setItem("tbDeviceId", selectedPanelData.device_id_thingsboard);
         localStorage.setItem("tbDeviceToken", selectedPanelData.token_thingsboard);
+        localStorage.setItem("deviceSn", selectedPanelData.device_sn);
         console.log('Données sauvegardées dans localStorage:', {
           selectedDevice: panelId,
           tbDeviceId: selectedPanelData.device_id_thingsboard,
-          tbDeviceToken: selectedPanelData.token_thingsboard
+          tbDeviceToken: selectedPanelData.token_thingsboard,
+          deviceSn: selectedPanelData.device_sn
         });
+
+        // Mettre à jour l'état
+        console.log('Mise à jour du panneau sélectionné');
+        setSelectedPanel(panelId);
       } catch (error) {
         console.error('Erreur lors de la mise à jour du localStorage:', error);
       }
-      
-      // Finalement, mettre à jour l'état et initialiser le nouveau socket
-      console.log('Mise à jour du panneau sélectionné');
-      setSelectedPanel(panelId);
     } else {
       setSelectedPanel("");
     }
@@ -333,40 +386,83 @@ const Dashboard = () => {
   }, [getValueFromDataList]);
 
   // Fetch all data and update telemetry state
+
+
+  // Ajout de journaux pour diagnostiquer les données de l'onduleur
+  // Effect: fetch immediately once to populate inverterData, then poll every 5 minutes
   useEffect(() => {
-    const deviceSn = 'SA3ES211N49240'; // Replace with actual device serial number
-    fetchAllData(deviceSn).then((data) => {
-      if (data !== null) {
-        console.log('All sensor data:', data);
-        setTelemetry(prev => ({
-          ...prev,
-          ...data
-        }));
+  const deviceSn = localStorage.getItem("deviceSn");
+  let mounted = true;
+
+  const fetchAndSet = async () => {
+    if (!deviceSn) return;
+    const data = await fetchAllData(deviceSn);
+    if (mounted && data) {
+      setInverterData(data);
+      setTelemetry(prev => ({ ...prev, ...data }));
+      
+      // Mettre à jour les données de puissance en temps réel si nécessaire
+      if (data.production !== undefined || data.usedPower !== undefined) {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString();
+        setPowerChartData(prev => {
+          const newUsePower = [...prev.usePower, {
+            x: timeStr,
+            y: data.usedPower || 0
+          }].slice(-288); // Garder 24h de données (288 points à 5 min d'intervalle)
+          
+          const newGenerationPower = [...prev.generationPower, {
+            x: timeStr,
+            y: data.production || 0
+          }].slice(-288);
+
+          return {
+            usePower: newUsePower,
+            generationPower: newGenerationPower
+          };
+        });
       }
-    });
-  }, [fetchAllData]); // Ajout de fetchAllData comme dépendance
+    }
+  };
+
+  fetchAndSet(); // appel immédiat
+
+  const interval = setInterval(fetchAndSet, 5 * 60 * 1000); // polling toutes les 5 min
+
+  return () => {
+    mounted = false;
+    clearInterval(interval);
+  };
+}, [fetchAllData, selectedPanel]);
+
+  useEffect(() => {
+    // Si le mounted n'est pas utilisé, nous pouvons simplement supprimer ce bloc
+    // car il n'effectue aucune opération asynchrone nécessitant un flag mounted
+  }, []); // empty dependency array
 
   return (
     <Box m="20px">
       {/* HEADER WITH PANEL SELECTOR */}
-      <Box display="flex" justifyContent="space-between" alignItems="center">
-        <Header title="SMART SOLAR TRACKING PANEL" subtitle="Suivi en temps réel de votre installation solaire" />
-        <Box width="250px">
-          <FormControl fullWidth>
-            <InputLabel>Panneau solaire</InputLabel>
-            <Select value={selectedPanel} onChange={handlePanelSelect} label="Panneau solaire">
-              {panels.map((panel) => (
-                <MenuItem key={panel.panel_id} value={panel.panel_id}>
-                  <Typography variant="body1">{panel.panel_name}</Typography>
-                  <Typography variant="caption" color="textSecondary">
-                    Client: {panel.client_name}
-                    <br />
-                    Adresse: {panel.address}
-                  </Typography>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+      <Box mb="20px">
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Header title="SMART SOLAR TRACKING PANEL" subtitle="Suivi en temps réel de votre installation solaire" />
+          <Box width="250px">
+            <FormControl fullWidth>
+              <InputLabel>Panneau solaire</InputLabel>
+              <Select value={selectedPanel} onChange={handlePanelSelect} label="Panneau solaire">
+                {panels.map((panel) => (
+                  <MenuItem key={panel.panel_id} value={panel.panel_id}>
+                    <Typography variant="body1">{panel.panel_name}</Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      Client: {panel.client_name}
+                      <br />
+                      Adresse: {panel.address}
+                    </Typography>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
         </Box>
       </Box>
 
@@ -375,10 +471,10 @@ const Dashboard = () => {
         {/* ROW 1 */}
         <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
           <StatBox
-            title={telemetry.dailyProduction != null ? `${telemetry.dailyProduction} kWh` : "-- kWh"}
+            title={inverterData.dailyProduction != null ? `${inverterData.dailyProduction} kWh` : "-- kWh"}
             subtitle="Production journalière"
-            progress={telemetry.dailyProduction != null ? String(Math.min(1, telemetry.dailyProduction / 10)) : "0.0"}
-            increase={telemetry.inverterStatus || ""}
+            progress={inverterData.dailyProduction != null ? String(Math.min(1, inverterData.dailyProduction / 10)) : "0.0"}
+            increase={inverterData.inverterStatus || ""}
             icon={<span role="img" aria-label="Soleil" style={{ fontSize: 26 }}>☀️</span>}
           />
         </Box>
@@ -424,7 +520,7 @@ const Dashboard = () => {
             subtitle="Vitesse du vent"
             progress={telemetry.windSpeed != null ? String(Math.min(1, Number(telemetry.windSpeed) / 30)) : "0.0"}
             increase={telemetryStatus('windSpeed', telemetry.windSpeed)}
-            icon={<img src="/assets/vent.png" alt="Vitesse du vent" style={{ width: 26, height: 26, objectFit: 'contain' }} />}
+            icon={<img src="/assets/vent.png" alt="Vitesse du vent" style={{ width: 50, height: 50, objectFit: 'contain' }} />}
           />
         </Box>
         <Box gridColumn="span 4" gridRow="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
@@ -442,12 +538,58 @@ const Dashboard = () => {
                 59,3 kWh
               </Typography>
             </Box>
-            <Box>
-              <DownloadOutlinedIcon sx={{ fontSize: "26px", color: colors.greenAccent[500] }} />
+            <Box display="flex" gap="20px" alignItems="center">
+              <TextField
+                label="Date"
+                type="date"
+                value={selectedDate.toISOString().split('T')[0]}
+                onChange={(e) => setSelectedDate(new Date(e.target.value))}
+                sx={{
+                  width: 220,
+                  '& .MuiInputBase-root': {
+                    color: colors.grey[100],
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: colors.grey[100],
+                  },
+                  '& .MuiOutlinedInput-root': {
+                    '& fieldset': {
+                      borderColor: colors.grey[100],
+                    },
+                    '&:hover fieldset': {
+                      borderColor: colors.greenAccent[500],
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: colors.greenAccent[500],
+                    }
+                  }
+                }}
+                InputLabelProps={{
+                  shrink: true,
+                  sx: {
+                    color: colors.grey[100]
+                  }
+                }}
+              />
+              <DownloadOutlinedIcon sx={{ fontSize: "26px", color: colors.greenAccent[500], cursor: "pointer" }} />
             </Box>
           </Box>
           <Box height="250px" m="-20px 0 0 0">
-            <LineChart isDashboard={true} />
+            <LineChart 
+              isDashboard={true} 
+              data={[
+                {
+                  id: "Production",
+                  color: colors.greenAccent[500],
+                  data: powerChartData.generationPower
+                },
+                {
+                  id: "Consommation",
+                  color: colors.redAccent[500],
+                  data: powerChartData.usePower
+                }
+              ]}
+            />
           </Box>
         </Box>
         <Box gridColumn="span 4" gridRow="span 2" backgroundColor={colors.primary[400]} overflow="auto">
@@ -500,6 +642,16 @@ const Dashboard = () => {
           <Box height="200px">
             <GeographyChart isDashboard={true} />
           </Box>
+        </Box>
+      </Box>
+
+      {/* Full width PowerChart */}
+      <Box mt="50px" backgroundColor={colors.primary[400]} p="60px">
+        <Typography variant="h5" fontWeight="600" gutterBottom>
+          Historique Puissance (Production vs Consommation)
+        </Typography>
+        <Box height="360px">
+          <PowerChart data={powerChartData} />
         </Box>
       </Box>
     </Box>

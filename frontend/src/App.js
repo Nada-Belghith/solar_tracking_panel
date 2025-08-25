@@ -6,7 +6,8 @@ import Dashboard from "./scenes/dashboard";
 import { useEffect } from "react";
 import Contacts from "./scenes/contacts";
 import Bar from "./scenes/bar";
-import PanelConfig from "./scenes/config";
+import PanelConfig from "./scenes/configCarte";
+import InverterConfig from "./scenes/configInverter";
 import Form from "./scenes/form";
 import Line from "./scenes/line";
 import Pie from "./scenes/pie";
@@ -109,6 +110,7 @@ function App() {
               <Route path="/select-client" element={<ProtectedRoute><ClientSelector /></ProtectedRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><PanelProtectedRoute><Dashboard /></PanelProtectedRoute></ProtectedRoute>} />
               <Route path="/config" element={<ProtectedRoute><PanelConfig /></ProtectedRoute>} />
+              <Route path="/config-inverter" element={<ProtectedRoute><InverterConfig /></ProtectedRoute>} />
               <Route path="/contacts" element={<Contacts />} />
               <Route path="/form" element={<Form />} />
               <Route path="/bar" element={<Bar />} />
