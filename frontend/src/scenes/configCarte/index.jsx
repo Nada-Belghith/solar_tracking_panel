@@ -20,6 +20,7 @@ const PanelConfig = () => {
   const [error, setError] = useState('');
   const [showConfirmButton, setShowConfirmButton] = useState(false);
   const [isConfiguring, setIsConfiguring] = useState(false);
+  const [espConfigOk, setEspConfigOk] = useState(false);
   const [configStep, setConfigStep] = useState(1); // Pour suivre l'étape de configuration
   const [wifiConfig, setWifiConfig] = useState({
     networkName: '',
@@ -107,24 +108,37 @@ const PanelConfig = () => {
         formData.append('elevation', configData.elevation);
 
         // Envoyer au bon endpoint avec le bon format
-        const espResponse = await fetch('http://192.168.4.1/save', {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: formData
-        });
+        // Use AbortController to implement a proper timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 7000);
 
-        console.log('📡 Réponse de l\'ESP:', {
-          status: espResponse.status,
-          statusText: espResponse.statusText
-        });
+        try {
+          const postUrl = 'http://192.168.4.1/save';
+          console.log('📤 Envoi POST vers URL:', postUrl);
+          const espResponse = await fetch(postUrl, {
+            method: 'POST',
+            mode: 'no-cors', // ESP usually doesn't send CORS headers
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: formData,
+            signal: controller.signal
+          });
 
-        // En mode 'no-cors', on ne peut pas lire la réponse,
-        // donc on considère que si on arrive ici, c'est un succès
-        console.log('✅ Requête envoyée avec succès');
-        return { success: true };
+          // In no-cors mode the response is opaque; if fetch resolved we assume the packet was sent
+          console.log('📡 Requête envoyée au point /save (no-cors) — réponse opaque attendue');
+          clearTimeout(timeoutId);
+          return { success: true };
+        } catch (err) {
+          clearTimeout(timeoutId);
+          // If the abort caused the error, throw a descriptive message so retry can occur
+          if (err.name === 'AbortError') {
+            console.error('⏱️ Timeout lors de l\'envoi vers l\'ESP (abort)');
+            throw err;
+          }
+          console.error('❌ Erreur fetch vers ESP:', err);
+          throw err;
+        }
         
         // Note: En mode 'no-cors', on ne peut pas vérifier espResponse.ok
         // ni lire le corps de la réponse
@@ -205,15 +219,36 @@ const PanelConfig = () => {
   };
 
   const checkESPConnection = async () => {
+    console.log('🔍 Vérification de la connexion ESP...');
+    // Primary: try fetch with timeout using AbortController
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
-      console.log('🔍 Vérification de la connexion ESP...');
-      // Vérifier que le formulaire de configuration est accessible
-      await fetch('http://192.168.4.1/', {
-        mode: 'no-cors',
-        timeout: 5000
-      });
+      await fetch('http://192.168.4.1/save', { mode: 'no-cors', signal: controller.signal });
+      clearTimeout(timeoutId);
+      console.log('✅ Fetch vers 192.168.4.1 réussi (no-cors)');
       return true;
-    } catch (error) {
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.warn('⚠️ Fetch check failed:', err && err.name ? err.name : err);
+      // Fallback: try loading a small image from the device (works around some fetch/network issues)
+      try {
+        const imgResult = await new Promise((resolve) => {
+          const img = new Image();
+          let resolved = false;
+          const timer = setTimeout(() => {
+            if (!resolved) { resolved = true; resolve(false); }
+          }, 4000);
+          img.onload = () => { if (!resolved) { resolved = true; clearTimeout(timer); resolve(true); } };
+          img.onerror = () => { if (!resolved) { resolved = true; clearTimeout(timer); resolve(false); } };
+        });
+        if (imgResult) {
+          console.log('✅ Image ping vers 192.168.4.1 réussi');
+          return true;
+        }
+      } catch (e) {
+        console.warn('⚠️ Fallback image ping failed:', e);
+      }
       return false;
     }
   };
@@ -246,7 +281,7 @@ const PanelConfig = () => {
       console.log('📡 Envoi de la configuration à l\'ESP...');
       const result = await sendConfigToESP(configData);
       
-      if (result) {
+  if (result) {
         console.log('✅ Configuration ESP réussie!');
 
         // Appeler configureDevice pour mettre à jour l'état backend
@@ -274,21 +309,28 @@ const PanelConfig = () => {
           throw new Error('Erreur lors de la configuration du panneau sur le backend');
         }
 
-        console.log('✅ Configuration backend réussie!');
+        console.log('✅ Configuration backend réussie!', { status: backendResp.status });
 
-        // Mettre à jour l'UI localement pour retirer le mode de configuration
-        setShowConfirmButton(false);
-        setConfigStep(3);
+        // Defensive: ensure UI state is updated even if an earlier branch misfired
+        try {
+          setShowConfirmButton(false);
+          setConfigStep(3);
+          setPanels(prev => prev.map(p => p.panel_id === selectedPanel ? { ...p, state: 'configuré' } : p));
+          setEspConfigOk(true);
+        } catch (setErr) {
+          console.warn('⚠️ Erreur en mettant à jour l\'état UI après configuration:', setErr);
+        }
+        // Ensure spinner is stopped
         setIsConfiguring(false);
-        setPanels(prev => prev.map(p => p.panel_id === selectedPanel ? { ...p, state: 'configuré' } : p));
+        console.log('ℹ️ États mis à jour: showConfirmButton=false, espConfigOk=true, isConfiguring=false');
 
+        // Notify user but keep them on the page; user can return to dashboard manually
+        // Small alert for backward compatibility
         alert(
           "Configuration réussie !\n\n" +
-          "1. L'ESP va redémarrer et se connecter à votre réseau WiFi\n" +
-          "2. Vous pouvez maintenant reconnecter votre appareil à votre réseau WiFi habituel\n" +
-          "3. Retour au dashboard..."
+          "L'ESP a été configuré correctement. Cliquez sur 'Retour au dashboard' pour revenir."
         );
-        navigate('/dashboard');
+        // do not auto-navigate so the UI can show the success state and stop the spinner
       }
     } catch (error) {
       console.error('❌ Erreur lors de la configuration ESP:', error);
@@ -435,23 +477,32 @@ const PanelConfig = () => {
             Sauvegarder la configuration
           </Button>
         ) : (
-          <Button
-            fullWidth
-            variant="contained"
-            color="primary"
-            onClick={handleConfirmConfig}
-            disabled={isConfiguring}
-            sx={{ mt: 2, bgcolor: 'success.main', '&:hover': { bgcolor: 'success.dark' } }}
-          >
-            {isConfiguring ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <CircularProgress size={20} color="inherit" />
-                <span>Configuration en cours...</span>
+          <>
+            {espConfigOk ? (
+              <Box sx={{ textAlign: 'center', mt: 2 }}>
+                <Typography variant="h6" color="success.main">✅ ESP configuré</Typography>
+                <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate('/dashboard')}>Retour au dashboard</Button>
               </Box>
             ) : (
-              "Envoyer la configuration à l'ESP"
+              <Button
+                fullWidth
+                variant="contained"
+                color="primary"
+                onClick={handleConfirmConfig}
+                disabled={isConfiguring}
+                sx={{ mt: 2, bgcolor: 'success.main', '&:hover': { bgcolor: 'success.dark' } }}
+              >
+                {isConfiguring ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={20} color="inherit" />
+                    <span>Configuration en cours...</span>
+                  </Box>
+                ) : (
+                  "Envoyer la configuration à l'ESP"
+                )}
+              </Button>
             )}
-          </Button>
+          </>
         )}
 
         {showConfirmButton && (

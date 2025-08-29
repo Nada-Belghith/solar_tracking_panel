@@ -52,7 +52,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientsRoutes);
 app.use('/api/thingsboard', thingsboardRoutes);
 app.use('/api/panels', panelsRoutes);
-app.use('/solarman', solarmanRoutes);
+app.use('/api/solarman', solarmanRoutes);
 
 // Debug route to check if server is running
 app.get('/', (req, res) => {

@@ -111,7 +111,6 @@ const Form = () => {
     email: "",
     address: "",
     installationDate: "",
-    status: "en attente",
     latitude: null,
     longitude: null,
     elevation: null

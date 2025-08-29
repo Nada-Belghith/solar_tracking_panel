@@ -1,18 +1,13 @@
-import { Box, Typography, useTheme, Select, MenuItem, FormControl, InputLabel, TextField } from "@mui/material";
+import { Box, Typography, useTheme, Select, MenuItem, FormControl, InputLabel } from "@mui/material";
 import { tokens } from "../../theme";
-import Header from "../../components/Header";
-import LineChart from "../../components/LineChart";
 import BarChart from "../../components/BarChart";
-import StatBox from "../../components/StatBox";
-import SolarPanel from "../../components/SolarPanel";
-import ProgressCircle from "../../components/ProgressCircle";
-import GeographyChart from "../../components/GeographyChart";
-import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
+import SolarBarChart from "../../components/SolarBarChart";
+import DashboardHeader from "../../components/DashboardHeader";
+import DashboardStats from "../../components/DashboardStats";
 import { useEffect, useState, useCallback, useRef } from "react";
 import io from "socket.io-client";
-import { mockTransactions } from "../../data/mockData";
-import axios from 'axios';
-import PowerChart from '../../components/PowerChart';
+import solarmanService from '../../services/solarmanService';
+import DashboardCharts from '../../components/DashboardCharts';
 
 const Dashboard = () => {
   const theme = useTheme();
@@ -36,9 +31,13 @@ const Dashboard = () => {
 
   const [selectedPanel, setSelectedPanel] = useState("");  // Initialize with empty string
   const [panels, setPanels] = useState([]);
+  // derive selected panel object and deviceSn for child components
+  const selectedPanelData = panels.find((p) => p.panel_id === selectedPanel) || null;
+  const deviceSn = selectedPanelData ? selectedPanelData.device_sn : null;
   const [telemetry, setTelemetry] = useState(getLastTelemetry()); // température, vent, lum, etc.
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [powerChartData, setPowerChartData] = useState({ usePower: [], generationPower: [] });
+  const [monthlyStats, setMonthlyStats] = useState(null);
   const [inverterData, setInverterData] = useState({
   production: null,
   dailyProduction: null,
@@ -77,59 +76,62 @@ const Dashboard = () => {
   };
 
   const fetchPowerHistoryData = useCallback(async () => {
-  if (!selectedPanel) return;
+    if (!selectedPanel) return;
+    try {
+      console.log('🕒 Début de la récupération des données -', new Date().toLocaleString());
+      const deviceSn = localStorage.getItem('deviceSn');
+  const resp = await solarmanService.fetchPowerHistory(deviceSn, selectedDate.getFullYear(), selectedDate.getMonth() + 1, selectedDate.getDate());
+      const data = resp;
+      if (data && Array.isArray(data.records)) {
+        console.log('📊 Nombre de points de données:', data.records.length);
+        const sortedRecords = [...data.records].sort((a, b) => a.dateTime - b.dateTime);
+        const usePowerData = sortedRecords.map(r => r.usePower ?? 0);
+        const generationPowerData = sortedRecords.map(r => r.generationPower ?? 0);
+        const timeStamps = sortedRecords.map(r => new Date(r.dateTime * 1000).toLocaleTimeString());
 
-  try {
-    console.log('🕒 Début de la récupération des données -', new Date().toLocaleString());
+        setPowerChartData({
+          usePower: usePowerData.map((value, index) => ({ x: timeStamps[index], y: value })),
+          generationPower: generationPowerData.map((value, index) => ({ x: timeStamps[index], y: value }))
+        });
 
-    const deviceSn = localStorage.getItem("deviceSn");
-    const url = new URL(`http://localhost:3001/solarman/power-history/${deviceSn}`);
-    url.searchParams.append('year', selectedDate.getFullYear());
-    url.searchParams.append('month', selectedDate.getMonth() + 1);
-    url.searchParams.append('day', selectedDate.getDate());
-
-    const response = await fetch(url.toString());
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (data && Array.isArray(data.records)) {
-      console.log('📊 Nombre de points de données:', data.records.length);
-
-      // Trier par dateTime croissant
-      const sortedRecords = [...data.records].sort((a, b) => a.dateTime - b.dateTime);
-
-      // Extraire les listes
-      const usePowerData = sortedRecords.map(r => r.usePower ?? 0);
-      const generationPowerData = sortedRecords.map(r => r.generationPower ?? 0);
-      const timeStamps = sortedRecords.map(r => new Date(r.dateTime * 1000).toLocaleTimeString());
-
-      console.log('⚡ usePowerData:', usePowerData);
-      console.log('☀️ generationPowerData:', generationPowerData);
-      console.log('🕒 timeStamps:', timeStamps);
-
-      // Store in component state for immediate use
-      setPowerChartData({
-        usePower: usePowerData.map((value, index) => ({ x: timeStamps[index], y: value })),
-        generationPower: generationPowerData.map((value, index) => ({ x: timeStamps[index], y: value }))
-      });
-
-      // Persist raw arrays to localStorage so other files/pages can read them
-      try {
-        localStorage.setItem('usePowerData', JSON.stringify(usePowerData));
-        localStorage.setItem('generationPowerData', JSON.stringify(generationPowerData));
-        localStorage.setItem('timeStamps', JSON.stringify(timeStamps));
-      } catch (e) {
-        console.warn('Unable to persist chart data to localStorage:', e);
+        try {
+          localStorage.setItem('usePowerData', JSON.stringify(usePowerData));
+          localStorage.setItem('generationPowerData', JSON.stringify(generationPowerData));
+          localStorage.setItem('timeStamps', JSON.stringify(timeStamps));
+        } catch (e) {
+          console.warn('Unable to persist chart data to localStorage:', e);
+        }
       }
+    } catch (err) {
+      console.error('❌ Erreur lors de la récupération de l’historique:', err);
     }
-  } catch (err) {
-    console.error('❌ Erreur lors de la récupération de l’historique:', err);
-  }
-}, [selectedPanel, selectedDate]);
+  }, [selectedPanel, selectedDate]);
+
+  // When user changes the selected date (from the PowerChart datepicker),
+  // immediately fetch history for that date so the chart updates.
+  useEffect(() => {
+    if (!selectedPanel) return;
+    // fetch for the newly selected date
+    fetchPowerHistoryData();
+  }, [selectedDate, selectedPanel]);
+
+  // Fetch monthly stats for the selected panel/date so the frontend can display monthly production
+  useEffect(() => {
+    if (!selectedPanel || !selectedDate) return;
+    const deviceSn = localStorage.getItem('deviceSn');
+    const year = selectedDate.getFullYear();
+    const month = selectedDate.getMonth() + 1;
+
+    solarmanService.getMonthlyPowerStats(deviceSn, year, month)
+      .then(res => {
+        if (res && res.success) setMonthlyStats(res.data);
+        else setMonthlyStats(res);
+      })
+      .catch(err => {
+        console.warn('Unable to fetch monthly stats', err);
+        setMonthlyStats(null);
+      });
+  }, [selectedPanel, selectedDate]);
 
   // Appeler fetchPowerHistoryData quand la fonction change
   useEffect(() => {
@@ -339,51 +341,14 @@ const Dashboard = () => {
     }
   };
 
-  const getValueFromDataList = useCallback((dataList, key) => {
-    const entry = dataList.find(item => item.key === key);
-    if (!entry) return null;
-    const value = parseFloat(entry.value);
-    return isNaN(value) ? entry.value : value;
-  }, []);
-
   const fetchAllData = useCallback(async (deviceSn) => {
     try {
-      console.log('Fetching data for deviceSn:', deviceSn);
-      const response = await axios.post("http://localhost:3001/solarman/currentData", { deviceSn });
-      console.log('Response from currentData:', response);
-      
-      if (response.data?.success && response.data.dataList) {
-        const dataList = response.data.dataList;
-        
-        // Retourner un objet avec toutes les données organisées
-        return {
-          // Production actuelle en Watts (APo_t1)
-          production: getValueFromDataList(dataList, 'APo_t1') || null,
-          // Production journalière en kWh (Etdy_ge1)
-          dailyProduction: getValueFromDataList(dataList, 'Etdy_ge1') || null,
-          // Production cumulée en kWh (Et_ge0)
-          totalProduction: getValueFromDataList(dataList, 'Et_ge0') || null,
-          // Température de l'onduleur en °C (INV_T0)
-          temperature: getValueFromDataList(dataList, 'INV_T0') || null,
-          // Status de l'onduleur (INV_ST1)
-          inverterStatus: getValueFromDataList(dataList, 'INV_ST1') || null,
-          // Puissance DC des panneaux (DP1 + DP2)
-          dcPower: (getValueFromDataList(dataList, 'DP1') || 0) + (getValueFromDataList(dataList, 'DP2') || 0),
-          // Tension DC des panneaux (DV1, DV2)
-          dcVoltage1: getValueFromDataList(dataList, 'DV1') || null,
-          dcVoltage2: getValueFromDataList(dataList, 'DV2') || null,
-          // Temps de fonctionnement en heures (t_w_hou1)
-          runningHours: getValueFromDataList(dataList, 't_w_hou1') || null,
-        };
-      }
-
-      console.error("Data not found in response:", response.data);
-      return null;
+  return await solarmanService.fetchCurrentDeviceData(deviceSn);
     } catch (error) {
-      console.error("Error fetching data:", error.response?.data || error);
+      console.error('Error fetching current device data:', error);
       return null;
     }
-  }, [getValueFromDataList]);
+  }, []);
 
   // Fetch all data and update telemetry state
 
@@ -416,6 +381,23 @@ const Dashboard = () => {
             y: data.production || 0
           }].slice(-288);
 
+          // Also persist raw arrays to localStorage so other components/pages can read live data
+          try {
+            const storedTimes = JSON.parse(localStorage.getItem('timeStamps') || '[]');
+            const storedUse = JSON.parse(localStorage.getItem('usePowerData') || '[]');
+            const storedGen = JSON.parse(localStorage.getItem('generationPowerData') || '[]');
+
+            const updatedTimes = [...storedTimes, timeStr].slice(-288);
+            const updatedUse = [...storedUse, data.usedPower || 0].slice(-288);
+            const updatedGen = [...storedGen, data.production || 0].slice(-288);
+
+            localStorage.setItem('timeStamps', JSON.stringify(updatedTimes));
+            localStorage.setItem('usePowerData', JSON.stringify(updatedUse));
+            localStorage.setItem('generationPowerData', JSON.stringify(updatedGen));
+          } catch (e) {
+            console.warn('Unable to persist live chart point to localStorage', e);
+          }
+
           return {
             usePower: newUsePower,
             generationPower: newGenerationPower
@@ -442,218 +424,27 @@ const Dashboard = () => {
 
   return (
     <Box m="20px">
-      {/* HEADER WITH PANEL SELECTOR */}
-      <Box mb="20px">
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Header title="SMART SOLAR TRACKING PANEL" subtitle="Suivi en temps réel de votre installation solaire" />
-          <Box width="250px">
-            <FormControl fullWidth>
-              <InputLabel>Panneau solaire</InputLabel>
-              <Select value={selectedPanel} onChange={handlePanelSelect} label="Panneau solaire">
-                {panels.map((panel) => (
-                  <MenuItem key={panel.panel_id} value={panel.panel_id}>
-                    <Typography variant="body1">{panel.panel_name}</Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      Client: {panel.client_name}
-                      <br />
-                      Adresse: {panel.address}
-                    </Typography>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-        </Box>
-      </Box>
+  {/* HEADER WITH PANEL SELECTOR (componentized) */}
+  <DashboardHeader panels={panels} selectedPanel={selectedPanel} handlePanelSelect={handlePanelSelect} />
 
-      {/* GRID & CHARTS */}
-      <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="20px">
-        {/* ROW 1 */}
-        <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
-          <StatBox
-            title={inverterData.dailyProduction != null ? `${inverterData.dailyProduction} kWh` : "-- kWh"}
-            subtitle="Production journalière"
-            progress={inverterData.dailyProduction != null ? String(Math.min(1, inverterData.dailyProduction / 10)) : "0.0"}
-            increase={inverterData.inverterStatus || ""}
-            icon={<span role="img" aria-label="Soleil" style={{ fontSize: 26 }}>☀️</span>}
-          />
-        </Box>
-        <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
-          <StatBox
-            title={formatTelemetryValue(telemetry.temperature) != null ? `${formatTelemetryValue(telemetry.temperature)}°C` : "--"}
-            subtitle="Température"
-            progress={telemetry.temperature != null ? String(Math.min(1, Number(telemetry.temperature) / 50)) : "0.0"}
-            increase={telemetryStatus('temperature', telemetry.temperature)}
-            icon={<span role="img" aria-label="Thermomètre" style={{ fontSize: 26 }}>🌡️</span>}
-          />
-        </Box>
-        <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
-          <StatBox
-            title={formatTelemetryValue(telemetry.pressure) != null ? `${formatTelemetryValue(telemetry.pressure)} hPa` : "-- hPa"}
-            subtitle="Pression"
-            progress={telemetry.pressure != null ? String(Math.min(1, (Number(telemetry.pressure) / 1100))) : "0.0"}
-            increase={telemetryStatus('pressure', telemetry.pressure)}
-            icon={
-              <svg width="26" height="26" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <defs>
-                  <linearGradient id="gaugeGrad" x1="0" x2="1">
-                    <stop offset="0" stopColor="#4caf50" />
-                    <stop offset="0.6" stopColor="#ffeb3b" />
-                    <stop offset="1" stopColor="#f44336" />
-                  </linearGradient>
-                </defs>
-                {/* outer light arc */}
-                <path d="M8 44 A24 24 0 0 1 56 44" fill="none" stroke="#e0e0e0" strokeWidth="6" strokeLinecap="round" />
-                {/* colored arc */}
-                <path d="M12 44 A20 20 0 0 1 52 44" fill="none" stroke="url(#gaugeGrad)" strokeWidth="6" strokeLinecap="round" />
-                {/* hub */}
-                <circle cx="32" cy="44" r="4" fill="#fffefeff" />
-                {/* needle */}
-                <line x1="32" y1="44" x2="46" y2="26" stroke="#fdf8f8ff" strokeWidth="3" strokeLinecap="round" />
-              </svg>
-            }
-          />
-        </Box>
-        <Box gridColumn="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
-          <StatBox
-            title={formatTelemetryValue(telemetry.windSpeed) != null ? `${formatTelemetryValue(telemetry.windSpeed)} m/s` : "-- m/s"}
-            subtitle="Vitesse du vent"
-            progress={telemetry.windSpeed != null ? String(Math.min(1, Number(telemetry.windSpeed) / 30)) : "0.0"}
-            increase={telemetryStatus('windSpeed', telemetry.windSpeed)}
-            icon={<img src="/assets/vent.png" alt="Vitesse du vent" style={{ width: 50, height: 50, objectFit: 'contain' }} />}
-          />
-        </Box>
-        <Box gridColumn="span 4" gridRow="span 2" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
-          <SolarPanel luminosity1={telemetry.luminosity1} luminosity2={telemetry.luminosity2} luminosity3={telemetry.luminosity3} />
-        </Box>
+  {/* GRID & CHARTS */}
+  {/* Use auto-sized rows so content can collapse without leaving empty holes */}
+  <DashboardStats colors={colors} inverterData={inverterData} telemetry={telemetry} telemetryStatus={telemetryStatus} formatTelemetryValue={formatTelemetryValue} />
 
-        {/* ROW 2 */}
-        <Box gridColumn="span 8" gridRow="span 2" backgroundColor={colors.primary[400]}>
-          <Box mt="25px" p="0 30px" display="flex" justifyContent="space-between" alignItems="center">
-            <Box>
-              <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
-                Énergie totale produite
-              </Typography>
-              <Typography variant="h3" fontWeight="bold" color={colors.greenAccent[500]}>
-                59,3 kWh
-              </Typography>
-            </Box>
-            <Box display="flex" gap="20px" alignItems="center">
-              <TextField
-                label="Date"
-                type="date"
-                value={selectedDate.toISOString().split('T')[0]}
-                onChange={(e) => setSelectedDate(new Date(e.target.value))}
-                sx={{
-                  width: 220,
-                  '& .MuiInputBase-root': {
-                    color: colors.grey[100],
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: colors.grey[100],
-                  },
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: colors.grey[100],
-                    },
-                    '&:hover fieldset': {
-                      borderColor: colors.greenAccent[500],
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: colors.greenAccent[500],
-                    }
-                  }
-                }}
-                InputLabelProps={{
-                  shrink: true,
-                  sx: {
-                    color: colors.grey[100]
-                  }
-                }}
-              />
-              <DownloadOutlinedIcon sx={{ fontSize: "26px", color: colors.greenAccent[500], cursor: "pointer" }} />
-            </Box>
-          </Box>
-          <Box height="250px" m="-20px 0 0 0">
-            <LineChart 
-              isDashboard={true} 
-              data={[
-                {
-                  id: "Production",
-                  color: colors.greenAccent[500],
-                  data: powerChartData.generationPower
-                },
-                {
-                  id: "Consommation",
-                  color: colors.redAccent[500],
-                  data: powerChartData.usePower
-                }
-              ]}
-            />
-          </Box>
-        </Box>
-        <Box gridColumn="span 4" gridRow="span 2" backgroundColor={colors.primary[400]} overflow="auto">
-          <Box display="flex" justifyContent="space-between" alignItems="center" borderBottom={`4px solid ${colors.primary[500]}`} colors={colors.grey[100]} p="15px">
-            <Typography color={colors.grey[100]} variant="h5" fontWeight="600">
-              Dernières mesures reçues
-            </Typography>
-          </Box>
-          {mockTransactions.map((transaction, i) => (
-            <Box key={`${transaction.txId}-${i}`} display="flex" justifyContent="space-between" alignItems="center" borderBottom={`4px solid ${colors.primary[500]}`} p="15px">
-              <Box>
-                <Typography color={colors.greenAccent[500]} variant="h5" fontWeight="600">
-                  {transaction.txId}
-                </Typography>
-                <Typography color={colors.grey[100]}>{transaction.user}</Typography>
+            <DashboardCharts colors={colors} powerChartData={powerChartData} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
+            {/* Monthly bar chart for selected panel */}
+            {deviceSn && (
+              <Box mt="20px" backgroundColor={colors.primary[400]} p="20px">
+                <Typography variant="h6" fontWeight="600">Production mensuelle (kWh)</Typography>
+                <Box height="220px" mt="12px">
+                  <SolarBarChart 
+  deviceSn={deviceSn} 
+  selectedDate={selectedDate} 
+  isDashboard={true} 
+/>
+                </Box>
               </Box>
-              <Box color={colors.grey[100]}>{transaction.date}</Box>
-              <Box backgroundColor={colors.greenAccent[500]} p="5px 10px" borderRadius="4px">
-                {transaction.cost} kWh
-              </Box>
-            </Box>
-          ))}
-        </Box>
-
-        {/* ROW 3 */}
-        <Box gridColumn="span 4" gridRow="span 2" backgroundColor={colors.primary[400]} p="30px">
-          <Typography variant="h5" fontWeight="600">
-            Performance solaire
-          </Typography>
-          <Box display="flex" flexDirection="column" alignItems="center" mt="25px">
-            <ProgressCircle size="125" />
-            <Typography variant="h5" color={colors.greenAccent[500]} sx={{ mt: "15px" }}>
-              48,3 kWh générés ce mois
-            </Typography>
-            <Typography>Donnees issues de tous les panneaux connectés</Typography>
-          </Box>
-        </Box>
-        <Box gridColumn="span 4" gridRow="span 2" backgroundColor={colors.primary[400]}>
-          <Typography variant="h5" fontWeight="600" sx={{ padding: "30px 30px 0 30px" }}>
-            Nombre de cycles solaires
-          </Typography>
-          <Box height="250px" mt="-20px">
-            <BarChart isDashboard={true} />
-          </Box>
-        </Box>
-        <Box gridColumn="span 4" gridRow="span 2" backgroundColor={colors.primary[400]} padding="30px">
-          <Typography variant="h5" fontWeight="600" sx={{ marginBottom: "15px" }}>
-            Production par zone géographique
-          </Typography>
-          <Box height="200px">
-            <GeographyChart isDashboard={true} />
-          </Box>
-        </Box>
-      </Box>
-
-      {/* Full width PowerChart */}
-      <Box mt="50px" backgroundColor={colors.primary[400]} p="60px">
-        <Typography variant="h5" fontWeight="600" gutterBottom>
-          Historique Puissance (Production vs Consommation)
-        </Typography>
-        <Box height="360px">
-          <PowerChart data={powerChartData} />
-        </Box>
-      </Box>
+            )}
     </Box>
   );
 };

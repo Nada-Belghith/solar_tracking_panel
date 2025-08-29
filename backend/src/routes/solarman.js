@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { fetchToken, fetchCurrentData, fetchPowerHistory } = require('../services/solarman');
+const { fetchToken, fetchCurrentData, fetchPowerHistory, fetchMonthlyPowerStats } = require('../services/solarman');
 
 /**
  * POST /token
@@ -57,6 +57,21 @@ router.get('/power-history/:deviceSn', async (req, res) => {
   } catch (error) {
     console.error('Erreur lors de la récupération de l\'historique:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /monthly/:deviceSn/:year/:month
+ * Récupère les statistiques mensuelles de production
+ */
+router.get('/monthly/:deviceSn/:year/:month', async (req, res) => {
+  const { deviceSn, year, month } = req.params;
+  try {
+    const data = await fetchMonthlyPowerStats(deviceSn, Number(year), Number(month));
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('Error in /api/solarman/monthly:', err.message || err);
+    res.status(500).json({ success: false, error: err.message || 'Internal error' });
   }
 });
 

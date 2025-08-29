@@ -137,7 +137,7 @@ const fetchPowerHistory = async (deviceSn, year, month, day) => {
       params: {
         year,
         month,
-        day: 24, // jour fixé à 24
+        day, // jour fixé à 24
       },
       timeout: 10000
       }
@@ -150,9 +150,44 @@ const fetchPowerHistory = async (deviceSn, year, month, day) => {
   }
 };
 
+/**
+ * Récupère les statistiques mensuelles de production pour un onduleur
+ * @param {string} deviceSn - numéro de série du dispositif
+ * @param {number} year - année (ex: 2025)
+ * @param {number} month - mois (1-12)
+ */
+const fetchMonthlyPowerStats = async (deviceSn, year, month) => {
+  if (isTokenExpired()) {
+    console.log('Token expired, fetching new one...');
+    await fetchToken();
+  }
+
+  try {
+    const siteId = await fetchDeviceSiteId(deviceSn);
+
+    const response = await axios.get(
+      `https://globalpro.solarmanpv.com/maintain-s/history/power/${siteId}/stats/month`,
+      {
+        headers: {
+          'Authorization': `Bearer ${cachedToken}`,
+          'Content-Type': 'application/json'
+        },
+        params: { year, month },
+        timeout: 10000,
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching monthly power stats:', error.message || error);
+    throw error;
+  }
+};
+
 module.exports = { 
   fetchToken, 
   fetchCurrentData,
   fetchDeviceSiteId,
-  fetchPowerHistory
+  fetchPowerHistory,
+  fetchMonthlyPowerStats
 };
