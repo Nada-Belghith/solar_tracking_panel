@@ -51,35 +51,11 @@ Les données sont envoyées par UART vers l’ESP32.
 L’ESP32 transmet les télémétries vers ThingsBoard via MQTT.
 La WebApp permet la configuration des cartes et la consultation des dashboards.
 
-## Structure du projet
-
-```
-SolarPanelTracking/
-│── stm32_firmware/
-│   ├── Core/
-│   ├── Drivers/
-│   └── spa_library/
-│
-│── esp32_firmware/
-│   ├── src/
-│   ├── data/ (WebApp locale)
-│
-│── webapp/
-│   ├── backend/
-│   ├── frontend/
-│
-│── documentation/
-│   ├── UML/
-│   └── synoptique/
-│
-└── README.md
-```
 
 ## Image d’illustration 🖼️
 
 
-![Aperçu du système](\frontend\public\assets\dashboard.png)
-
+![Aperçu du système](frontend/public/assets/dashboard.png)
 
 ## Technologies utilisées ⚙️
 
@@ -96,11 +72,3 @@ SolarPanelTracking/
 - 🎯 Calcul précis de la position solaire.
 - 🏗️ Architecture IoT robuste et évolutive.
 - 📊 Visualisation temps réel et analyse historique.
-
----
-
-Pour remplacer l'image par une capture de votre tableau de bord, mettez simplement un fichier `system_overview.svg` ou `system_overview.png` dans le dossier `img/` à la racine du projet.
-
-Si vous voulez, je peux créer une image placeholder SVG maintenant pour que l'image apparaisse immédiatement dans le README.
-# solar_panel
- 
