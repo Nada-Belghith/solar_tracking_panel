@@ -55,7 +55,7 @@ La WebApp permet la configuration des cartes et la consultation des dashboards.
 ## Image d’illustration 🖼️
 
 
-![Aperçu du système](frontend/public/assets/dashboard.png)
+![Aperçu du système](https://github.com/Nada-Belghith/solar_tracking_panel/blob/main/frontend/public/dashboard.png)
 
 ## Technologies utilisées ⚙️
 
